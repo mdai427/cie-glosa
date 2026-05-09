@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>GLOSA — Glosa Preventiva Aduanal</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- HEADER -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">⚖</span>
+        <div>
+          <span class="logo-title">GLOSA</span>
+          <span class="logo-sub">Glosa Preventiva Aduanal</span>
+        </div>
+      </div>
+      <nav class="nav">
+        <button class="nav-btn active" onclick="mostrarSeccion('nueva')">Nueva Revisión</button>
+        <button class="nav-btn" onclick="mostrarSeccion('historial')">Historial</button>
+      </nav>
+    </div>
+  </header>
+
+  <!-- SECCIÓN: NUEVA REVISIÓN -->
+  <main id="sec-nueva" class="section">
+    <div class="container">
+      <div class="page-title">
+        <h1>Nueva Glosa Preventiva</h1>
+        <p>Carga los documentos del embarque para detectar diferencias antes de validar el pedimento.</p>
+      </div>
+
+      <form id="form-revision" onsubmit="iniciarRevision(event)">
+        <!-- Datos de la operación -->
+        <div class="card">
+          <h2 class="card-title">Datos de la Operación</h2>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Referencia / Número de operación</label>
+              <input type="text" id="referencia" placeholder="Ej: OP-2024-001" />
+            </div>
+            <div class="form-group">
+              <label>Cliente / Importador</label>
+              <input type="text" id="cliente" placeholder="Nombre del cliente" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Carga de documentos -->
+        <div class="card">
+          <h2 class="card-title">Documentos del Embarque</h2>
+          <p class="card-desc">La app identificará automáticamente el tipo de cada documento. Puedes cargar uno o varios archivos PDF.</p>
+
+          <div class="doc-grid">
+            <div class="doc-slot" id="slot-pedimento" onclick="triggerUpload('pedimento')">
+              <div class="doc-icon">📋</div>
+              <div class="doc-label">Pedimento / Proforma</div>
+              <div class="doc-status" id="status-pedimento">Sin cargar</div>
+              <input type="file" id="input-pedimento" accept=".pdf,.txt" multiple style="display:none" onchange="asignarArchivo('pedimento', this)" />
+            </div>
+
+            <div class="doc-slot" id="slot-factura" onclick="triggerUpload('factura')">
+              <div class="doc-icon">🧾</div>
+              <div class="doc-label">Factura Comercial</div>
+              <div class="doc-status" id="status-factura">Sin cargar</div>
+              <input type="file" id="input-factura" accept=".pdf,.txt" multiple style="display:none" onchange="asignarArchivo('factura', this)" />
+            </div>
+
+            <div class="doc-slot" id="slot-carta318" onclick="triggerUpload('carta318')">
+              <div class="doc-icon">📄</div>
+              <div class="doc-label">Carta / Checklist 3.1.8</div>
+              <div class="doc-status" id="status-carta318">Sin cargar</div>
+              <input type="file" id="input-carta318" accept=".pdf,.txt" multiple style="display:none" onchange="asignarArchivo('carta318', this)" />
+            </div>
+
+            <div class="doc-slot" id="slot-cove" onclick="triggerUpload('cove')">
+              <div class="doc-icon">🔐</div>
+              <div class="doc-label">COVE / Acuse de Valor</div>
+              <div class="doc-status" id="status-cove">Sin cargar</div>
+              <input type="file" id="input-cove" accept=".pdf,.txt" multiple style="display:none" onchange="asignarArchivo('cove', this)" />
+            </div>
+
+            <div class="doc-slot" id="slot-packing" onclick="triggerUpload('packing')">
+              <div class="doc-icon">📦</div>
+              <div class="doc-label">Packing List</div>
+              <div class="doc-status" id="status-packing">Sin cargar</div>
+              <input type="file" id="input-packing" accept=".pdf,.txt" multiple style="display:none" onchange="asignarArchivo('packing', this)" />
+            </div>
+
+            <div class="doc-slot" id="slot-bl" onclick="triggerUpload('bl')">
+              <div class="doc-icon">🚢</div>
+              <div class="doc-label">BL / Guía / Transporte</div>
+              <div class="doc-status" id="status-bl">Sin cargar</div>
+              <input type="file" id="input-bl" accept=".pdf,.txt" multiple style="display:none" onchange="asignarArchivo('bl', this)" />
+            </div>
+          </div>
+
+          <!-- También permite arrastrar cualquier archivo -->
+          <div class="dropzone" id="dropzone"
+            ondragover="dragOver(event)" ondragleave="dragLeave(event)" ondrop="dropArchivos(event)">
+            <span class="drop-icon">📂</span>
+            <p>O arrastra aquí todos los archivos juntos</p>
+            <p class="drop-hint">La IA identificará el tipo de cada documento automáticamente</p>
+            <input type="file" id="input-general" accept=".pdf,.txt" multiple style="display:none" onchange="agregarArchivosGenerales(this)" />
+          </div>
+
+          <div id="lista-archivos" class="archivos-lista"></div>
+        </div>
+
+        <!-- Botón enviar -->
+        <div class="submit-area">
+          <button type="submit" class="btn-primary" id="btn-analizar">
+            <span id="btn-texto">🔍 Iniciar Glosa Preventiva</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </main>
+
+  <!-- SECCIÓN: RESULTADO -->
+  <main id="sec-resultado" class="section" style="display:none">
+    <div class="container">
+      <!-- Semáforo -->
+      <div class="semaforo-card" id="semaforo-card">
+        <div class="semaforo-header">
+          <div class="semaforo-luz" id="semaforo-luz"></div>
+          <div>
+            <h1 id="semaforo-titulo">Resultado de la Glosa</h1>
+            <p id="semaforo-recomendacion"></p>
+          </div>
+          <div class="semaforo-meta">
+            <span id="meta-ref"></span>
+            <span id="meta-fecha"></span>
+          </div>
+        </div>
+        <div class="contadores">
+          <div class="contador critico"><span id="cnt-critico">0</span><small>Críticos</small></div>
+          <div class="contador alto"><span id="cnt-alto">0</span><small>Altos</small></div>
+          <div class="contador medio"><span id="cnt-medio">0</span><small>Medios</small></div>
+          <div class="contador bajo"><span id="cnt-bajo">0</span><small>Bajos</small></div>
+        </div>
+      </div>
+
+      <!-- Documentos cargados -->
+      <div class="card">
+        <h2 class="card-title">Documentos Analizados</h2>
+        <div id="docs-analizados" class="docs-tags"></div>
+      </div>
+
+      <!-- Tabla de hallazgos -->
+      <div class="card" id="card-hallazgos">
+        <div class="card-header-row">
+          <h2 class="card-title">Tabla de Hallazgos</h2>
+          <div class="filtros">
+            <button class="filtro-btn active" onclick="filtrarHallazgos('todos', this)">Todos</button>
+            <button class="filtro-btn" onclick="filtrarHallazgos('Crítico', this)">Críticos</button>
+            <button class="filtro-btn" onclick="filtrarHallazgos('Alto', this)">Altos</button>
+            <button class="filtro-btn" onclick="filtrarHallazgos('Medio', this)">Medios</button>
+            <button class="filtro-btn" onclick="filtrarHallazgos('Bajo', this)">Bajos</button>
+          </div>
+        </div>
+        <div class="table-wrapper">
+          <table id="tabla-hallazgos">
+            <thead>
+              <tr>
+                <th>Campo</th>
+                <th>Valor en Pedimento</th>
+                <th>Valor en Documento</th>
+                <th>Documento Fuente</th>
+                <th>Fundamento Legal</th>
+                <th>Riesgo</th>
+                <th>Acción</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-hallazgos"></tbody>
+          </table>
+          <div id="sin-hallazgos" class="sin-hallazgos" style="display:none">
+            <span>✅</span><p>Sin hallazgos en este filtro</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Acciones -->
+      <div class="submit-area gap">
+        <button class="btn-secondary" onclick="nuevaRevision()">← Nueva Revisión</button>
+        <button class="btn-primary" onclick="exportarPDF()">⬇ Exportar Reporte</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- SECCIÓN: HISTORIAL -->
+  <main id="sec-historial" class="section" style="display:none">
+    <div class="container">
+      <div class="page-title">
+        <h1>Historial de Revisiones</h1>
+        <p>Revisiones guardadas en este sistema.</p>
+      </div>
+      <div class="card">
+        <div id="tabla-historial"></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- LOADING OVERLAY -->
+  <div id="loading" class="loading-overlay" style="display:none">
+    <div class="loading-box">
+      <div class="spinner"></div>
+      <h2>Analizando documentos...</h2>
+      <p id="loading-msg">Extrayendo información con IA</p>
+      <div class="loading-steps">
+        <div class="step" id="step1">📄 Leyendo documentos...</div>
+        <div class="step" id="step2">🤖 Extrayendo campos con IA...</div>
+        <div class="step" id="step3">⚖ Ejecutando validaciones...</div>
+        <div class="step" id="step4">📊 Generando reporte...</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
