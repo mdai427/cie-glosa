@@ -13,9 +13,11 @@
   <header class="header">
     <div class="header-inner">
       <div class="logo">
-        <span class="logo-icon">⚖</span>
-        <div>
-          <span class="logo-title">GLOSA</span>
+        <img src="/static/img/cie-logo.png" alt="CIE" class="logo-img" onerror="this.style.display='none';document.getElementById('logo-fallback').style.display='flex'"/>
+        <div id="logo-fallback" class="logo-icon-fallback" style="display:none">CIE</div>
+        <div class="logo-divider"></div>
+        <div class="logo-text">
+          <span class="logo-title">CIE <span>GLOSA</span></span>
           <span class="logo-sub">Glosa Preventiva Aduanal</span>
         </div>
       </div>
@@ -187,7 +189,7 @@
       <!-- Acciones -->
       <div class="submit-area gap">
         <button class="btn-secondary" onclick="nuevaRevision()">← Nueva Revisión</button>
-        <button class="btn-primary" onclick="exportarPDF()">⬇ Exportar Reporte</button>
+        <button class="btn-export" onclick="exportarPDF()">⬇ Exportar Reporte</button>
       </div>
     </div>
   </main>
