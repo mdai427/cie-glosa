@@ -67,6 +67,95 @@ def hacer_hallazgo(campo, val_ped, val_doc, doc_fuente, fundamento, riesgo, acci
     )
 
 
+MESES_EN = {
+    "JANUARY": "01", "FEBRUARY": "02", "MARCH": "03", "APRIL": "04",
+    "MAY": "05", "JUNE": "06", "JULY": "07", "AUGUST": "08",
+    "SEPTEMBER": "09", "OCTOBER": "10", "NOVEMBER": "11", "DECEMBER": "12",
+    "JAN": "01", "FEB": "02", "MAR": "03", "APR": "04",
+    "JUN": "06", "JUL": "07", "AUG": "08", "SEP": "09",
+    "OCT": "10", "NOV": "11", "DEC": "12",
+}
+MESES_ES = {
+    "ENERO": "01", "FEBRERO": "02", "MARZO": "03", "ABRIL": "04",
+    "MAYO": "05", "JUNIO": "06", "JULIO": "07", "AGOSTO": "08",
+    "SEPTIEMBRE": "09", "OCTUBRE": "10", "NOVIEMBRE": "11", "DICIEMBRE": "12",
+    "ENE": "01", "FEB": "02", "MAR": "03", "ABR": "04",
+    "MAY": "05", "JUN": "06", "JUL": "07", "AGO": "08",
+    "SEP": "09", "OCT": "10", "NOV": "11", "DIC": "12",
+}
+
+
+def normalizar_fecha(fecha: str) -> str:
+    """
+    Normaliza una fecha a formato DDMMYYYY para comparación.
+    Soporta todos los formatos comunes en documentos aduanales:
+      - MX:  15/03/2024 | 15-03-2024 | 15 de marzo de 2024
+      - EN:  March 15, 2024 | Mar 15 2024 | 03/15/2024 | January 10 2024
+      - ISO: 2024-03-15
+    """
+    if not fecha:
+        return ""
+    original = str(fecha).strip().upper()
+
+    # ── Paso 1: detectar si hay nombre de mes y su posición ──
+    todos_meses = {**MESES_ES, **MESES_EN}
+    mes_num = None        # número del mes detectado por nombre
+    mes_al_inicio = None  # True=mes antes del día, False=día antes del mes
+
+    for nombre, num in sorted(todos_meses.items(), key=lambda x: -len(x[0])):
+        m = re.search(r'\b' + nombre + r'\b', original)
+        if m:
+            mes_num = num
+            # ¿Hay dígitos antes del mes? → día-mes (ES/MX escrito)
+            texto_antes = original[:m.start()].strip()
+            hay_digitos_antes = bool(re.search(r'\d', texto_antes))
+            mes_al_inicio = not hay_digitos_antes  # True=mes primero (EN), False=día primero (ES)
+            break
+
+    # ── Paso 2: limpiar el texto ──
+    f = original
+    for nombre in todos_meses:
+        f = re.sub(r'\b' + nombre + r'\b', ' ', f)
+    f = re.sub(r'\bDE\b|\bOF\b', ' ', f)
+    f = re.sub(r'[,./\-]', ' ', f)
+
+    nums = re.findall(r'\d+', f)
+    if not nums:
+        return re.sub(r'\D', '', original)
+
+    # ── Paso 3: identificar año ──
+    yyyy = next((n for n in nums if len(n) == 4 and int(n) > 1900), None)
+    if not yyyy:
+        return re.sub(r'\D', '', original)
+
+    rest = [n for n in nums if n != yyyy]
+    if not rest:
+        return re.sub(r'\D', '', original)
+
+    # ── Paso 4: asignar día y mes ──
+    if mes_num:
+        # Teníamos nombre de mes → el único número restante es el día
+        dd = rest[0].zfill(2) if rest else "01"
+        mm = mes_num
+    elif len(rest) >= 2:
+        n0, n1 = int(rest[0]), int(rest[1])
+        # Formato ISO ya fue manejado
+        if len(nums[0]) == 4 and int(nums[0]) > 1900:
+            # ISO: YYYY-MM-DD
+            mm, dd = rest[0].zfill(2), rest[1].zfill(2)
+        elif n0 > 12:
+            dd, mm = str(n0).zfill(2), str(n1).zfill(2)   # MX: DD/MM
+        elif n1 > 12:
+            mm, dd = str(n0).zfill(2), str(n1).zfill(2)   # EN: MM/DD
+        else:
+            # Ambiguo → asumir MX (DD/MM) para documentos aduanales mexicanos
+            dd, mm = str(n0).zfill(2), str(n1).zfill(2)
+    else:
+        return re.sub(r'\D', '', original)
+
+    return dd + mm + yyyy
+
+
 INCOTERMS_VALIDOS = ["EXW", "FCA", "FAS", "FOB", "CFR", "CIF", "CPT", "CIP", "DAP", "DPU", "DDP"]
 INCOTERMS_SIN_FLETE = ["EXW", "FCA", "FAS", "FOB"]   # Origen → flete a cargo del comprador
 
@@ -188,14 +277,11 @@ def validar_proveedor(ped: dict, factura: dict, carta: dict) -> List[Hallazgo]:
             "El número de factura declarado en pedimento no coincide con el documento cargado."
         ))
 
-    # Fecha de factura — comparación flexible (puede variar formato)
+    # Fecha de factura — comparación normalizada (soporta formatos MX y EN)
     fecha_ped = normalizar(ped.get("fecha_factura"))
     fecha_doc = normalizar(doc.get("fecha_factura"))
     if fecha_ped and fecha_doc and fecha_ped != fecha_doc:
-        # Extraer solo dígitos y comparar
-        dig_ped = re.sub(r'\D', '', fecha_ped)
-        dig_doc = re.sub(r'\D', '', fecha_doc)
-        if dig_ped != dig_doc:
+        if normalizar_fecha(fecha_ped) != normalizar_fecha(fecha_doc):
             h.append(hacer_hallazgo(
                 "Fecha de Factura",
                 ped.get("fecha_factura"), doc.get("fecha_factura"), fuente,
