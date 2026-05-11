@@ -1,5 +1,0 @@
-[phases.setup]
-nixPkgs = ["poppler_utils", "poppler"]
-
-[phases.install]
-cmds = ["pip install -r requirements.txt"]
