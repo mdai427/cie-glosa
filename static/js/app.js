@@ -271,8 +271,23 @@ function nuevaRevision() {
 }
 
 // ===== EXPORTAR =====
-function exportarPDF() {
+async function exportarPDF() {
   if (!resultadoActual) return;
+
+  // Intentar cargar el logo como base64
+  let logoHtml = '<div style="font-size:22px;font-weight:700;color:#CC1F2F;letter-spacing:1px">CIE</div>';
+  try {
+    const resp = await fetch('/static/img/cie-logo.png');
+    if (resp.ok) {
+      const blob = await resp.blob();
+      const dataUrl = await new Promise(resolve => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.readAsDataURL(blob);
+      });
+      logoHtml = `<img src="${dataUrl}" style="height:48px;object-fit:contain" alt="CIE">`;
+    }
+  } catch (_) {}
 
   const semColors = { verde: '#2ed573', amarillo: '#ffd32a', rojo: '#ff4757', negro: '#a29bfe' };
   const semNombres = { verde: 'PUEDE VALIDAR', amarillo: 'REVISAR', rojo: 'NO VALIDAR', negro: 'ESCALAR' };
@@ -282,19 +297,30 @@ function exportarPDF() {
     <meta charset="UTF-8">
     <title>Glosa ${resultadoActual.referencia}</title>
     <style>
-      body{font-family:Arial,sans-serif;font-size:12px;color:#111;padding:24px;max-width:1000px;margin:0 auto}
-      h1{font-size:18px;margin-bottom:4px}
-      .sem{padding:12px 20px;border-radius:8px;font-weight:bold;font-size:15px;display:inline-block;margin:8px 0;color:#fff;background:${color}}
+      body{font-family:Arial,sans-serif;font-size:12px;color:#111;padding:0;max-width:1000px;margin:0 auto}
+      .report-header{background:#1B2B6B;color:#fff;padding:18px 28px;display:flex;align-items:center;gap:20px;border-bottom:4px solid #CC1F2F}
+      .report-header-text h1{font-size:18px;margin:0;font-weight:700;letter-spacing:.5px}
+      .report-header-text p{margin:2px 0 0;font-size:11px;opacity:.8}
+      .report-body{padding:24px}
+      .sem{padding:10px 20px;border-radius:6px;font-weight:bold;font-size:14px;display:inline-block;margin:8px 0;color:#fff;background:${color}}
       table{width:100%;border-collapse:collapse;margin-top:16px;font-size:11px}
-      th{background:#222;color:#fff;padding:8px;text-align:left}
+      th{background:#1B2B6B;color:#fff;padding:8px;text-align:left}
       td{padding:8px;border-bottom:1px solid #ddd;vertical-align:top}
       .c{color:#ff4757;font-weight:bold} .a{color:#e67e22;font-weight:bold}
       .m{color:#d4ac0d} .b{color:#27ae60}
       .meta{color:#666;font-size:11px;margin-bottom:16px}
+      .footer{text-align:center;color:#999;font-size:10px;margin-top:24px;padding-top:12px;border-top:1px solid #eee}
     </style>
   </head><body>
-    <h1>Glosa Preventiva Aduanal</h1>
-    <p class="meta">Referencia: ${resultadoActual.referencia} &nbsp;|&nbsp; Fecha: ${resultadoActual.fecha_revision} &nbsp;|&nbsp; ID: ${resultadoActual.id}</p>
+    <div class="report-header">
+      ${logoHtml}
+      <div class="report-header-text">
+        <h1>GLOSA Preventiva Aduanal</h1>
+        <p>CIE Agencia Aduanal — Reporte de Revisión</p>
+      </div>
+    </div>
+    <div class="report-body">
+    <p class="meta">Referencia: <strong>${resultadoActual.referencia}</strong> &nbsp;|&nbsp; Fecha: ${resultadoActual.fecha_revision} &nbsp;|&nbsp; ID: ${resultadoActual.id}</p>
     <div class="sem">${semNombres[resultadoActual.semaforo]?.toUpperCase()}</div>
     <p style="margin:8px 0 16px">${resultadoActual.recomendacion}</p>
     <p><strong>Resumen:</strong> ${resultadoActual.total_criticos} críticos | ${resultadoActual.total_altos} altos | ${resultadoActual.total_medios} medios | ${resultadoActual.total_bajos} bajos</p>
@@ -315,7 +341,10 @@ function exportarPDF() {
     </tr>`;
   });
 
-  html += `</tbody></table></body></html>`;
+  html += `</tbody></table>
+    <div class="footer">Generado por CIE GLOSA — Sistema de Glosa Preventiva Aduanal</div>
+    </div>
+  </body></html>`;
 
   const blob = new Blob([html], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
