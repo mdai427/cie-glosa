@@ -65,12 +65,22 @@ async def health():
     return {"status": "ok"}
 
 
-@app.get("/", response_class=HTMLResponse)
-async def root():
+# Pre-leer el HTML una sola vez al inicio (no en cada request)
+_HTML_CACHE: str = ""
+
+@app.on_event("startup")
+async def cargar_html():
+    global _HTML_CACHE
     index_path = STATIC_DIR / "index.html"
     if index_path.exists():
         async with aiofiles.open(str(index_path), "r", encoding="utf-8") as f:
-            return await f.read()
+            _HTML_CACHE = await f.read()
+
+
+@app.get("/", response_class=HTMLResponse)
+async def root():
+    if _HTML_CACHE:
+        return HTMLResponse(_HTML_CACHE)
     return HTMLResponse("<h1>GLOSA - Sistema iniciando...</h1>")
 
 
