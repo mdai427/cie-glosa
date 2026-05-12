@@ -1,7 +1,7 @@
 fastapi==0.115.5
 uvicorn[standard]==0.32.1
 python-multipart==0.0.12
-anthropic==0.50.0
+anthropic>=0.40.0,<1.0.0
 pdfplumber==0.11.4
 aiosqlite==0.20.0
 python-dotenv==1.0.1
@@ -10,5 +10,3 @@ aiofiles==24.1.0
 httpx==0.28.1
 pdf2image==1.17.0
 Pillow==11.1.0
-cffi<2.0.0
-cryptography>=42.0.0,<44.0.0

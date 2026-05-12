@@ -684,78 +684,93 @@ def validar_partidas(ped: dict, factura: dict, packing: dict) -> List[Hallazgo]:
 
 def validar_regla_318(factura: dict, carta: dict) -> List[Hallazgo]:
     """
-    Valida los 13 campos requeridos por la Regla 3.1.8 de las RGCE.
+    Valida los campos requeridos por la Regla 3.1.8 de las RGCE.
+    Busca primero en factura, luego en carta 3.1.8 como respaldo.
+    Solo reporta faltante si NINGUNO de los dos documentos tiene el campo.
     """
     h = []
-    doc = factura or carta
-    if not doc:
+    if not factura and not carta:
         return h
-    fuente = "Factura Comercial" if factura else "Carta 3.1.8"
 
-    # Los 13 campos que exige la regla 3.1.8
+    def get_campo(key):
+        """Busca un campo en factura primero, luego en carta 3.1.8."""
+        if factura and factura.get(key):
+            return factura.get(key), "Factura Comercial"
+        if carta:
+            # Equivalencias entre campos de factura y carta
+            equivalencias = {
+                "descripcion_general": ["descripcion_mercancia", "descripcion_general"],
+                "valor_total":         ["valor_total", "valor"],
+                "fecha_factura":       ["fecha_factura", "fecha_expedicion"],
+                "lugar_expedicion":    ["lugar_expedicion"],
+            }
+            for alt_key in equivalencias.get(key, [key]):
+                val = carta.get(alt_key)
+                if val:
+                    return val, "Carta 3.1.8"
+        return None, None
+
+    # Los campos que exige la regla 3.1.8
     campos_318 = [
         ("lugar_expedicion",    "Lugar de expedición"),
         ("fecha_factura",       "Fecha de expedición"),
-        ("nombre_importador",   "Nombre y domicilio del destinatario"),
-        ("nombre_proveedor",    "Nombre y domicilio del vendedor/proveedor"),
+        ("nombre_importador",   "Nombre/domicilio del destinatario"),
+        ("nombre_proveedor",    "Nombre/domicilio del vendedor"),
         ("numero_factura",      "Número de factura o documento equivalente"),
-        ("descripcion_general", "Descripción comercial detallada de la mercancía"),
+        ("descripcion_general", "Descripción comercial detallada"),
         ("moneda",              "Moneda de la operación"),
         ("valor_total",         "Valor total de la operación"),
     ]
-    # Campos extra de la carta 3.1.8
-    if carta:
-        campos_318 += [
-            ("cantidad",        "Cantidad de unidades"),
-            ("unidad",          "Unidad de medida"),
-            ("valor_unitario",  "Valor unitario"),
-        ]
 
     for campo_key, campo_nombre in campos_318:
-        val = doc.get(campo_key)
+        val, fuente_encontrado = get_campo(campo_key)
         if not val:
+            # No está en ningún documento — sí es hallazgo
+            fuente_report = "Factura Comercial" if factura else "Carta 3.1.8"
             h.append(hacer_hallazgo(
                 f"3.1.8 — {campo_nombre}",
-                "N/A", "NO LOCALIZADO EN DOCUMENTO", fuente,
-                "RGCE Regla 3.1.8",
+                "N/A", "NO LOCALIZADO EN NINGÚN DOCUMENTO", fuente_report,
+                "RGCE Regla 3.1.8 / Anexo 22",
                 RiesgoNivel.MEDIO,
-                f"Verificar que el documento incluya: {campo_nombre}"
+                f"Verificar que factura o carta 3.1.8 incluya: {campo_nombre}"
             ))
 
     # Verificación especial: descripción comercial detallada
-    desc = str(doc.get("descripcion_general") or "")
+    desc_val, desc_fuente = get_campo("descripcion_general")
+    desc = str(desc_val or "")
     if desc:
-        palabras = desc.split()
-        # Detectar si la descripción es solo códigos/SKUs (menos de 3 palabras reales)
-        palabras_reales = [p for p in palabras if len(p) > 4 and not p.replace("-", "").replace("_", "").isdigit()]
+        palabras_reales = [p for p in desc.split() if len(p) > 4 and not p.replace("-", "").replace("_", "").isdigit()]
         if len(palabras_reales) < 2 or len(desc) < 15:
             h.append(hacer_hallazgo(
                 "3.1.8 — Descripción Comercial Detallada",
                 desc[:100], "Descripción insuficiente o solo códigos/SKUs",
-                fuente,
+                desc_fuente or "Factura Comercial",
                 "RGCE 3.1.8 — Descripción comercial detallada",
                 RiesgoNivel.MEDIO,
-                "La descripción debe ser comercialmente detallada. No se aceptan solo códigos, SKUs o números de parte."
+                "La descripción debe ser detallada comercialmente. No se aceptan solo códigos o SKUs."
             ))
 
-    # Verificar domicilios (deben estar en el mismo campo o detectables)
-    dom_imp = doc.get("domicilio_importador")
-    dom_prov = doc.get("domicilio_proveedor")
+    # Verificar domicilios — buscar en ambos documentos
+    dom_imp = (factura and factura.get("domicilio_importador")) or (carta and carta.get("domicilio_importador"))
+    dom_prov = (factura and factura.get("domicilio_proveedor")) or (carta and carta.get("domicilio_proveedor"))
+
     if not dom_imp:
+        fuente_report = "Factura Comercial" if factura else "Carta 3.1.8"
         h.append(hacer_hallazgo(
             "3.1.8 — Domicilio del Destinatario",
-            "N/A", "NO LOCALIZADO", fuente,
+            "N/A", "NO LOCALIZADO", fuente_report,
             "RGCE Regla 3.1.8",
             RiesgoNivel.MEDIO,
-            "Verificar que la factura incluya el domicilio completo del destinatario/importador."
+            "Verificar que factura o carta 3.1.8 incluya domicilio completo del destinatario."
         ))
     if not dom_prov:
+        fuente_report = "Factura Comercial" if factura else "Carta 3.1.8"
         h.append(hacer_hallazgo(
             "3.1.8 — Domicilio del Vendedor",
-            "N/A", "NO LOCALIZADO", fuente,
+            "N/A", "NO LOCALIZADO", fuente_report,
             "RGCE Regla 3.1.8",
             RiesgoNivel.MEDIO,
-            "Verificar que la factura incluya el domicilio completo del vendedor/proveedor."
+            "Verificar que factura o carta 3.1.8 incluya domicilio completo del vendedor."
         ))
 
     return h
