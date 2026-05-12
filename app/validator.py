@@ -570,64 +570,88 @@ def validar_logistica(ped: dict, packing: dict, bl: dict) -> List[Hallazgo]:
 # BLOQUE G — PARTIDAS (nuevo en v2)
 # ─────────────────────────────────────────────
 
+UMC_MAP = {
+    "PZA": ["PCS", "PC", "PIECE", "PIECES", "PZ", "PZA", "UNIT", "UNITS", "6"],
+    "KG":  ["KGS", "KG", "KILO", "KILOS", "KILOGRAM", "KILOGRAMS"],
+    "LT":  ["LTR", "LITER", "LITERS", "LT"],
+    "MT":  ["MTR", "METER", "METERS", "MT", "M"],
+    "PAR": ["PAIR", "PAIRS", "PAR"],
+}
+
+PALABRAS_RESUMEN_FACTURA = {
+    "DETAILS", "ATTACHED", "SHEETS", "SEE", "AS", "PER", "LIST", "ATTACHED SHEET",
+    "REMAINDER", "BALANCE", "VARIOUS", "VARIOS", "MISCELANEOUS", "MISC"
+}
+
+def mismo_umc(u1: str, u2: str) -> bool:
+    for variantes in UMC_MAP.values():
+        if u1 in variantes and u2 in variantes:
+            return True
+    return u1 == u2
+
+
+def es_linea_resumen(descripcion: str) -> bool:
+    """Detecta si una línea de factura es resumen ('DETAILS AS PER ATTACHED', etc.)."""
+    palabras = set(normalizar(descripcion).split())
+    return len(palabras & PALABRAS_RESUMEN_FACTURA) >= 2 or "DETAILS" in palabras
+
+
 def validar_partidas(ped: dict, factura: dict, packing: dict) -> List[Hallazgo]:
     """
-    Compara las partidas del pedimento contra factura y packing list:
-    - Descripción de la mercancía
-    - Unidad de medida comercial (UMC)
-    - Cantidad UMC
-    - Precio unitario
-    - Valor por partida
+    Compara partidas del pedimento vs factura.
+    Solo compara cuando los conteos son comparables (pedimento ≤ 2× factura).
+    Salta líneas de factura que son resumen ('DETAILS AS PER ATTACHED SHEETS').
     """
     h = []
     partidas_ped = ped.get("partidas") or []
     if not partidas_ped or not isinstance(partidas_ped, list):
         return h
 
-    partidas_fac = (factura.get("partidas") or []) if factura else []
+    partidas_fac_raw = (factura.get("partidas") or []) if factura else []
+    # Filtrar líneas resumen de factura
+    partidas_fac = [p for p in partidas_fac_raw
+                    if isinstance(p, dict) and not es_linea_resumen(p.get("descripcion") or "")]
+
     partidas_pack = (packing.get("partidas") or []) if packing else []
+
+    n_ped = len(partidas_ped)
+    n_fac = len(partidas_fac)
+
+    # Si el pedimento tiene muchas más partidas que la factura, probablemente
+    # son desgloses de un resumen — no comparar descripción/precio 1:1.
+    # Solo comparar si la factura tiene al menos 50% de las partidas del pedimento.
+    comparar_con_factura = n_fac > 0 and n_fac >= n_ped * 0.5
 
     for i, p_ped in enumerate(partidas_ped):
         if not isinstance(p_ped, dict):
             continue
 
         num_partida = p_ped.get("numero") or str(i + 1)
-        desc_ped = normalizar(p_ped.get("descripcion") or "")
         umc_ped = normalizar(p_ped.get("umc") or "")
         cant_ped = extraer_numero(p_ped.get("cantidad_umc"))
         precio_ped = extraer_numero(p_ped.get("precio_unitario"))
 
-        # ── vs Factura ──
-        p_fac = partidas_fac[i] if i < len(partidas_fac) else None
-        if p_fac and isinstance(p_fac, dict):
+        # ── vs Factura (solo si conteos son comparables) ──
+        if comparar_con_factura:
+            p_fac = partidas_fac[i] if i < len(partidas_fac) else None
+            if p_fac and isinstance(p_fac, dict):
+                desc_ped = normalizar(p_ped.get("descripcion") or "")
+                desc_fac = normalizar(p_fac.get("descripcion") or "")
 
-            # Descripción
-            desc_fac = normalizar(p_fac.get("descripcion") or "")
-            if desc_ped and desc_fac and not palabras_coinciden(desc_ped, desc_fac, 0.35):
-                h.append(hacer_hallazgo(
-                    f"Partida {num_partida} — Descripción",
-                    desc_ped[:120], desc_fac[:120],
-                    "Factura Comercial",
-                    "Anexo 22 / RGCE 3.1.8",
-                    RiesgoNivel.ALTO,
-                    f"La descripción de la partida {num_partida} del pedimento difiere de la factura."
-                ))
+                # Descripción
+                if desc_ped and desc_fac and not palabras_coinciden(desc_ped, desc_fac, 0.35):
+                    h.append(hacer_hallazgo(
+                        f"Partida {num_partida} — Descripción",
+                        desc_ped[:120], desc_fac[:120],
+                        "Factura Comercial",
+                        "Anexo 22 / RGCE 3.1.8",
+                        RiesgoNivel.ALTO,
+                        f"La descripción de la partida {num_partida} del pedimento difiere de la factura."
+                    ))
 
-            # UMC vs unidad factura
-            umc_fac = normalizar(p_fac.get("unidad") or "")
-            if umc_ped and umc_fac:
-                # Mapeamos abreviaciones comunes
-                UMC_MAP = {"PZA": ["PCS", "PC", "PIECE", "PIECES", "PZ", "PZA", "UNIT", "UNITS"],
-                           "KG":  ["KGS", "KG", "KILO", "KILOS", "KILOGRAM"],
-                           "LT":  ["LTR", "LITER", "LITERS", "LT"],
-                           "MT":  ["MTR", "METER", "METERS", "MT", "M"],
-                           "PAR": ["PAIR", "PAIRS", "PAR"]}
-                def mismo_umc(u1, u2):
-                    for canon, variantes in UMC_MAP.items():
-                        if u1 in variantes and u2 in variantes:
-                            return True
-                    return u1 == u2
-                if not mismo_umc(umc_ped, umc_fac):
+                # UMC
+                umc_fac = normalizar(p_fac.get("unidad") or "")
+                if umc_ped and umc_fac and not mismo_umc(umc_ped, umc_fac):
                     h.append(hacer_hallazgo(
                         f"Partida {num_partida} — UMC",
                         umc_ped, umc_fac,
@@ -637,43 +661,44 @@ def validar_partidas(ped: dict, factura: dict, packing: dict) -> List[Hallazgo]:
                         f"La unidad de medida (UMC) de la partida {num_partida} difiere de la factura."
                     ))
 
-            # Cantidad UMC
-            cant_fac = extraer_numero(p_fac.get("cantidad"))
-            if cant_ped and cant_fac and not valores_numericos_coinciden(cant_ped, cant_fac, 0.01):
-                h.append(hacer_hallazgo(
-                    f"Partida {num_partida} — Cantidad UMC",
-                    str(cant_ped), str(cant_fac),
-                    "Factura Comercial",
-                    "Anexo 22",
-                    RiesgoNivel.CRITICO,
-                    f"La cantidad de la partida {num_partida} ({cant_ped}) no coincide con la factura ({cant_fac})."
-                ))
+                # Cantidad
+                cant_fac = extraer_numero(p_fac.get("cantidad"))
+                if cant_ped and cant_fac and not valores_numericos_coinciden(cant_ped, cant_fac, 0.01):
+                    h.append(hacer_hallazgo(
+                        f"Partida {num_partida} — Cantidad UMC",
+                        str(cant_ped), str(cant_fac),
+                        "Factura Comercial",
+                        "Anexo 22",
+                        RiesgoNivel.CRITICO,
+                        f"La cantidad de la partida {num_partida} ({cant_ped}) no coincide con la factura ({cant_fac})."
+                    ))
 
-            # Precio unitario
-            precio_fac = extraer_numero(p_fac.get("precio_unitario"))
-            if precio_ped and precio_fac and not valores_numericos_coinciden(precio_ped, precio_fac, 0.02):
-                h.append(hacer_hallazgo(
-                    f"Partida {num_partida} — Precio Unitario",
-                    str(precio_ped), str(precio_fac),
-                    "Factura Comercial",
-                    "Anexo 22 / Art. 64 Ley Aduanera",
-                    RiesgoNivel.CRITICO,
-                    f"El precio unitario de la partida {num_partida} difiere entre pedimento y factura."
-                ))
+                # Precio unitario
+                precio_fac = extraer_numero(p_fac.get("precio_unitario"))
+                if precio_ped and precio_fac and not valores_numericos_coinciden(precio_ped, precio_fac, 0.02):
+                    h.append(hacer_hallazgo(
+                        f"Partida {num_partida} — Precio Unitario",
+                        str(precio_ped), str(precio_fac),
+                        "Factura Comercial",
+                        "Anexo 22 / Art. 64 Ley Aduanera",
+                        RiesgoNivel.CRITICO,
+                        f"El precio unitario de la partida {num_partida} difiere entre pedimento y factura."
+                    ))
 
         # ── vs Packing List ──
-        p_pack = partidas_pack[i] if i < len(partidas_pack) else None
-        if p_pack and isinstance(p_pack, dict):
-            cant_pack = extraer_numero(p_pack.get("cantidad"))
-            if cant_ped and cant_pack and not valores_numericos_coinciden(cant_ped, cant_pack, 0.01):
-                h.append(hacer_hallazgo(
-                    f"Partida {num_partida} — Cantidad vs Packing",
-                    str(cant_ped), str(cant_pack),
-                    "Packing List",
-                    "Anexo 22",
-                    RiesgoNivel.ALTO,
-                    f"La cantidad de la partida {num_partida} del pedimento difiere del packing list."
-                ))
+        if partidas_pack:
+            p_pack = partidas_pack[i] if i < len(partidas_pack) else None
+            if p_pack and isinstance(p_pack, dict):
+                cant_pack = extraer_numero(p_pack.get("cantidad"))
+                if cant_ped and cant_pack and not valores_numericos_coinciden(cant_ped, cant_pack, 0.01):
+                    h.append(hacer_hallazgo(
+                        f"Partida {num_partida} — Cantidad vs Packing",
+                        str(cant_ped), str(cant_pack),
+                        "Packing List",
+                        "Anexo 22",
+                        RiesgoNivel.ALTO,
+                        f"La cantidad de la partida {num_partida} del pedimento difiere del packing list."
+                    ))
 
     return h
 
