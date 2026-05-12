@@ -60,6 +60,11 @@ async def startup():
     await init_db()
 
 
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
 @app.get("/", response_class=HTMLResponse)
 async def root():
     index_path = STATIC_DIR / "index.html"

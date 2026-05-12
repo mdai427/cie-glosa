@@ -12,6 +12,7 @@ import json
 import os
 import re
 import base64
+import time
 from pathlib import Path
 from app.models import TipoDocumento
 
@@ -297,6 +298,44 @@ Instrucciones:
 
 
 # ─────────────────────────────────────────────
+# LLAMADA A CLAUDE CON RETRY AUTOMÁTICO
+# ─────────────────────────────────────────────
+def _llamar_claude(client, model: str, max_tokens: int, system: str, messages: list, retries: int = 3) -> str:
+    """Llama a Claude con reintentos automáticos si la API está saturada (error 529)."""
+    last_error = None
+    for intento in range(retries):
+        try:
+            msg = client.messages.create(
+                model=model,
+                max_tokens=max_tokens,
+                system=system,
+                messages=messages
+            )
+            return msg.content[0].text.strip()
+        except anthropic.APIStatusError as e:
+            last_error = e
+            if e.status_code in (529, 529) or "overloaded" in str(e).lower():
+                espera = 10 * (intento + 1)  # 10s, 20s, 30s
+                time.sleep(espera)
+                continue
+            raise
+        except Exception as e:
+            last_error = e
+            if intento < retries - 1:
+                time.sleep(5)
+                continue
+            raise
+    raise last_error
+
+
+def _parsear_json(raw: str) -> dict:
+    raw = re.sub(r'^```json\s*', '', raw)
+    raw = re.sub(r'^```\s*', '', raw)
+    raw = re.sub(r'\s*```$', '', raw)
+    return json.loads(raw.strip())
+
+
+# ─────────────────────────────────────────────
 # EXTRACCIÓN CON CLAUDE — TEXTO
 # ─────────────────────────────────────────────
 def extract_with_claude_text(text: str, doc_type: TipoDocumento) -> dict:
@@ -304,7 +343,8 @@ def extract_with_claude_text(text: str, doc_type: TipoDocumento) -> dict:
     text_truncated = text[:14000] if len(text) > 14000 else text
 
     try:
-        message = client.messages.create(
+        raw = _llamar_claude(
+            client,
             model="claude-sonnet-4-6",
             max_tokens=2048,
             system=SYSTEM_PROMPT,
@@ -313,11 +353,7 @@ def extract_with_claude_text(text: str, doc_type: TipoDocumento) -> dict:
                 "content": build_extraction_prompt(doc_type) + "\n\nDOCUMENTO:\n" + text_truncated
             }]
         )
-        raw = message.content[0].text.strip()
-        raw = re.sub(r'^```json\s*', '', raw)
-        raw = re.sub(r'^```\s*', '', raw)
-        raw = re.sub(r'\s*```$', '', raw)
-        return json.loads(raw)
+        return _parsear_json(raw)
     except json.JSONDecodeError as e:
         return {"error": f"JSON inválido: {str(e)}", "_ocr_method": "text"}
     except Exception as e:
@@ -334,16 +370,11 @@ def extract_with_claude_vision(images: list[dict], doc_type: TipoDocumento) -> d
     """
     client = get_claude_client()
 
-    # Construir contenido multimodal: texto + imágenes
-    content = []
-
-    # Añadir prompt primero
-    content.append({
+    content = [{
         "type": "text",
         "text": build_extraction_prompt(doc_type) + "\n\nA continuación las imágenes del documento:"
-    })
+    }]
 
-    # Añadir imágenes (máx 4 páginas para no exceder tokens)
     for img in images[:4]:
         content.append({
             "type": "image",
@@ -355,17 +386,14 @@ def extract_with_claude_vision(images: list[dict], doc_type: TipoDocumento) -> d
         })
 
     try:
-        message = client.messages.create(
+        raw = _llamar_claude(
+            client,
             model="claude-sonnet-4-6",
             max_tokens=2048,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": content}]
         )
-        raw = message.content[0].text.strip()
-        raw = re.sub(r'^```json\s*', '', raw)
-        raw = re.sub(r'^```\s*', '', raw)
-        raw = re.sub(r'\s*```$', '', raw)
-        result = json.loads(raw)
+        result = _parsear_json(raw)
         result["_ocr_method"] = "vision"
         return result
     except json.JSONDecodeError as e:
