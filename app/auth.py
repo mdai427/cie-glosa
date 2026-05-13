@@ -15,6 +15,11 @@ SECRET_KEY = os.getenv("JWT_SECRET_KEY", secrets.token_hex(32))
 ALGORITHM = "HS256"
 INACTIVIDAD_HORAS = 8
 
+# passlib 1.7.4 + bcrypt 4.x requiere este parche
+import bcrypt as _bcrypt_lib
+if not hasattr(_bcrypt_lib, '__about__'):
+    _bcrypt_lib.__about__ = type('about', (), {'__version__': _bcrypt_lib.__version__})()
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
