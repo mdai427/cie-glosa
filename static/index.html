@@ -24,6 +24,7 @@
       <nav class="nav">
         <button class="nav-btn active" onclick="mostrarSeccion('nueva')">Nueva Revisión</button>
         <button class="nav-btn" onclick="mostrarSeccion('historial')">Historial</button>
+        <button class="nav-btn" onclick="mostrarSeccion('dashboard')">Dashboard</button>
       </nav>
     </div>
   </header>
@@ -203,6 +204,56 @@
       </div>
       <div class="card">
         <div id="tabla-historial"></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- SECCIÓN: DASHBOARD -->
+  <main id="sec-dashboard" class="section" style="display:none">
+    <div class="container">
+      <div class="page-title">
+        <h1>Dashboard Ejecutivo</h1>
+        <p>Métricas agregadas del sistema de glosa preventiva.</p>
+      </div>
+
+      <!-- 4 metric cards -->
+      <div class="dash-metrics">
+        <div class="dash-metric-card">
+          <span class="dash-num" id="dash-total">—</span>
+          <span class="dash-lbl">Total Revisiones</span>
+        </div>
+        <div class="dash-metric-card accent-verde">
+          <span class="dash-num verde" id="dash-verde-pct">—</span>
+          <span class="dash-lbl">% Semáforo Verde</span>
+        </div>
+        <div class="dash-metric-card accent-rojo">
+          <span class="dash-num rojo" id="dash-criticos">—</span>
+          <span class="dash-lbl">Hallazgos Críticos Totales</span>
+        </div>
+        <div class="dash-metric-card accent-azul">
+          <span class="dash-num azul" id="dash-7dias">—</span>
+          <span class="dash-lbl">Revisiones (7 días)</span>
+        </div>
+      </div>
+
+      <!-- Gráfica + Top campos -->
+      <div class="dash-row">
+        <div class="card">
+          <h2 class="card-title">Distribución por Semáforo</h2>
+          <div class="dash-chart-wrap">
+            <canvas id="chart-semaforo"></canvas>
+          </div>
+        </div>
+        <div class="card">
+          <h2 class="card-title">Top 5 Campos con Hallazgos</h2>
+          <div id="dash-top-campos" class="top-campos-list">
+            <p style="color:var(--gris-texto);text-align:center;padding:20px">Sin datos</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="submit-area">
+        <button class="btn-secondary" onclick="cargarDashboard()">↺ Actualizar</button>
       </div>
     </div>
   </main>

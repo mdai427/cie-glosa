@@ -2,10 +2,29 @@
 let archivosSeleccionados = new DataTransfer();
 let resultadoActual = null;
 let todosHallazgos = [];
+let _chartSemaforo = null;
+
+// ===== API KEY & FETCH HELPER =====
+function _obtenerApiKey() {
+  if (window.__GLOSA_KEY__) return window.__GLOSA_KEY__;
+  let key = sessionStorage.getItem('glosa_api_key');
+  if (!key) {
+    key = prompt('Ingresa la API Key de GLOSA (déjalo vacío si no hay):') || '';
+    if (key) sessionStorage.setItem('glosa_api_key', key);
+  }
+  return key;
+}
+
+async function apiFetch(url, options = {}) {
+  const key = _obtenerApiKey();
+  const headers = { ...(options.headers || {}) };
+  if (key) headers['X-Api-Key'] = key;
+  return fetch(url, { ...options, headers });
+}
 
 // ===== NAVEGACIÓN =====
 function mostrarSeccion(seccion) {
-  ['nueva', 'resultado', 'historial'].forEach(s => {
+  ['nueva', 'resultado', 'historial', 'dashboard'].forEach(s => {
     const el = document.getElementById(`sec-${s}`);
     if (el) el.style.display = 'none';
   });
@@ -13,10 +32,14 @@ function mostrarSeccion(seccion) {
   if (target) target.style.display = 'block';
 
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-  const btn = [...document.querySelectorAll('.nav-btn')].find(b => b.textContent.toLowerCase().includes(seccion === 'nueva' ? 'nueva' : 'historial'));
+  // Mapear sección a keyword del botón de nav
+  const navKeyword = { nueva: 'nueva', resultado: 'nueva', historial: 'historial', dashboard: 'dashboard' };
+  const keyword = navKeyword[seccion] || seccion;
+  const btn = [...document.querySelectorAll('.nav-btn')].find(b => b.textContent.toLowerCase().includes(keyword));
   if (btn) btn.classList.add('active');
 
   if (seccion === 'historial') cargarHistorial();
+  if (seccion === 'dashboard') cargarDashboard();
 }
 
 // ===== MANEJO DE ARCHIVOS =====
@@ -120,7 +143,7 @@ async function iniciarRevision(e) {
   if (cliente) formData.append('cliente', cliente);
 
   try {
-    const res = await fetch('/api/revision', {
+    const res = await apiFetch('/api/revision', {
       method: 'POST',
       body: formData
     });
@@ -221,7 +244,7 @@ async function cargarHistorial() {
   const div = document.getElementById('tabla-historial');
   div.innerHTML = '<p style="color:var(--text3);text-align:center;padding:20px">Cargando...</p>';
   try {
-    const res = await fetch('/api/revisiones');
+    const res = await apiFetch('/api/revisiones');
     const data = await res.json();
     if (!data.length) {
       div.innerHTML = '<p style="color:var(--text3);text-align:center;padding:30px">Sin revisiones guardadas.</p>';
@@ -250,7 +273,7 @@ async function cargarHistorial() {
 
 async function verRevision(id) {
   try {
-    const res = await fetch(`/api/revision/${id}`);
+    const res = await apiFetch(`/api/revision/${id}`);
     const data = await res.json();
     mostrarResultado(data);
   } catch (err) {
@@ -404,6 +427,101 @@ async function exportarPDF() {
   }).from(elemento).save();
 
   document.body.removeChild(elemento);
+}
+
+// ===== DASHBOARD =====
+async function _cargarChartJs() {
+  if (window.Chart) return;
+  await new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/chart.js';
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+async function cargarDashboard() {
+  // Poner indicadores de carga
+  ['dash-total', 'dash-verde-pct', 'dash-criticos', 'dash-7dias'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = '…';
+  });
+  const topDiv = document.getElementById('dash-top-campos');
+  if (topDiv) topDiv.innerHTML = '<p style="color:var(--gris-texto);text-align:center;padding:20px">Cargando...</p>';
+
+  try {
+    const res = await apiFetch('/api/dashboard');
+    if (!res.ok) throw new Error(`Error ${res.status}`);
+    const d = await res.json();
+
+    const total = d.total_revisiones || 0;
+    const sem = d.por_semaforo || {};
+    const verde = sem.verde || 0;
+    const verdePct = total > 0 ? Math.round((verde / total) * 100) : 0;
+
+    document.getElementById('dash-total').textContent = total;
+    document.getElementById('dash-verde-pct').textContent = `${verdePct}%`;
+    document.getElementById('dash-criticos').textContent = d.total_criticos ?? 0;
+    document.getElementById('dash-7dias').textContent = d.revisiones_ultimos_7_dias || 0;
+
+    await _cargarChartJs();
+    _renderizarChartSemaforo(sem);
+    _renderizarTopCampos((d.top_campos_hallazgos || []).slice(0, 5));
+  } catch (err) {
+    ['dash-total', 'dash-verde-pct', 'dash-criticos', 'dash-7dias'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = '—';
+    });
+    if (topDiv) topDiv.innerHTML = `<p class="dash-error">Error al cargar: ${escHtml(err.message)}</p>`;
+  }
+}
+
+function _renderizarChartSemaforo(sem) {
+  const canvas = document.getElementById('chart-semaforo');
+  if (!canvas) return;
+  if (_chartSemaforo) { _chartSemaforo.destroy(); _chartSemaforo = null; }
+
+  _chartSemaforo = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: ['Verde', 'Amarillo', 'Rojo', 'Negro'],
+      datasets: [{
+        data: [sem.verde || 0, sem.amarillo || 0, sem.rojo || 0, sem.negro || 0],
+        backgroundColor: ['#1A8A5A', '#C47E00', '#CC1F2F', '#6B4FCC'],
+        borderRadius: 7,
+        borderSkipped: false,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { beginAtZero: true, ticks: { stepSize: 1, color: '#8890B5' }, grid: { color: '#D8DCF0' } },
+        x: { ticks: { color: '#4A5180', font: { weight: '600' } }, grid: { display: false } }
+      }
+    }
+  });
+}
+
+function _renderizarTopCampos(campos) {
+  const div = document.getElementById('dash-top-campos');
+  if (!div) return;
+  if (!campos.length) {
+    div.innerHTML = '<p style="color:var(--gris-texto);text-align:center;padding:20px">Sin hallazgos registrados</p>';
+    return;
+  }
+  const maxCount = campos[0].count || 1;
+  div.innerHTML = campos.map(c => `
+    <div class="top-campo-item">
+      <span class="top-campo-name">${escHtml(c.campo)}</span>
+      <div class="top-campo-bar-wrap">
+        <div class="top-campo-bar" style="width:${Math.round((c.count / maxCount) * 100)}%"></div>
+      </div>
+      <span class="top-campo-count">${c.count}</span>
+    </div>
+  `).join('');
 }
 
 // ===== LOADING =====

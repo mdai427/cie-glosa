@@ -79,6 +79,12 @@ async def startup():
                     estatus TEXT DEFAULT 'completado'
                 )
             """)
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_revisiones_cliente ON revisiones(cliente)"
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_revisiones_fecha ON revisiones(fecha_revision)"
+            )
             await db.commit()
     except Exception as e:
         logger.error(f"DB init error: {e}")
@@ -273,6 +279,7 @@ async def dashboard(
 
         campos_counter: Counter = Counter()
         ultimos_7 = 0
+        total_criticos = 0
 
         for (rjson,) in rows:
             try:
@@ -282,6 +289,7 @@ async def dashboard(
                     por_semaforo[sem] += 1
                 for h in r.get("hallazgos", []):
                     campos_counter[h.get("campo", "")] += 1
+                total_criticos += r.get("total_criticos", 0)
                 # Últimos 7 días (formato DD/MM/YYYY HH:MM)
                 fecha_str = r.get("fecha_revision", "")
                 if fecha_str and fecha_str[:10] >= hace_7_dias:
@@ -299,6 +307,7 @@ async def dashboard(
         "por_semaforo": por_semaforo,
         "top_campos_hallazgos": top_campos,
         "revisiones_ultimos_7_dias": ultimos_7,
+        "total_criticos": total_criticos,
     }
 
 

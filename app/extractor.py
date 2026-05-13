@@ -300,8 +300,11 @@ Instrucciones:
 # ─────────────────────────────────────────────
 # LLAMADA A CLAUDE CON RETRY AUTOMÁTICO
 # ─────────────────────────────────────────────
-def _llamar_claude(client, model: str, max_tokens: int, system: str, messages: list, retries: int = 3) -> str:
-    """Llama a Claude con reintentos automáticos si la API está saturada (error 529)."""
+def _llamar_claude(client, model: str, max_tokens: int, system: str, messages: list, retries: int = 3) -> tuple[str, int]:
+    """
+    Llama a Claude con reintentos automáticos si la API está saturada (error 529).
+    Retorna (texto_respuesta, tokens_usados).
+    """
     last_error = None
     for intento in range(retries):
         try:
@@ -311,10 +314,11 @@ def _llamar_claude(client, model: str, max_tokens: int, system: str, messages: l
                 system=system,
                 messages=messages
             )
-            return msg.content[0].text.strip()
+            tokens = (msg.usage.input_tokens or 0) + (msg.usage.output_tokens or 0)
+            return msg.content[0].text.strip(), tokens
         except anthropic.APIStatusError as e:
             last_error = e
-            if e.status_code in (529, 529) or "overloaded" in str(e).lower():
+            if e.status_code == 529 or "overloaded" in str(e).lower():
                 espera = 10 * (intento + 1)  # 10s, 20s, 30s
                 time.sleep(espera)
                 continue
@@ -339,25 +343,33 @@ def _parsear_json(raw: str) -> dict:
 # EXTRACCIÓN CON CLAUDE — TEXTO
 # ─────────────────────────────────────────────
 def extract_with_claude_text(text: str, doc_type: TipoDocumento) -> dict:
+    """Extrae campos del documento usando texto digital. Reintenta hasta 2 veces si el JSON es inválido."""
     client = get_claude_client()
-    text_truncated = text[:14000] if len(text) > 14000 else text
+    text_truncated = text[:18000] if len(text) > 18000 else text
+    messages = [{
+        "role": "user",
+        "content": build_extraction_prompt(doc_type) + "\n\nDOCUMENTO:\n" + text_truncated
+    }]
 
-    try:
-        raw = _llamar_claude(
-            client,
-            model="claude-sonnet-4-6",
-            max_tokens=2048,
-            system=SYSTEM_PROMPT,
-            messages=[{
-                "role": "user",
-                "content": build_extraction_prompt(doc_type) + "\n\nDOCUMENTO:\n" + text_truncated
-            }]
-        )
-        return _parsear_json(raw)
-    except json.JSONDecodeError as e:
-        return {"error": f"JSON inválido: {str(e)}", "_ocr_method": "text"}
-    except Exception as e:
-        return {"error": str(e), "_ocr_method": "text"}
+    last_json_error = None
+    for intento in range(3):  # intento inicial + hasta 2 reintentos
+        try:
+            raw, tokens = _llamar_claude(
+                client, model="claude-sonnet-4-6", max_tokens=2048,
+                system=SYSTEM_PROMPT, messages=messages
+            )
+            datos = _parsear_json(raw)
+            datos["_tokens_used"] = tokens
+            return datos
+        except json.JSONDecodeError as e:
+            last_json_error = e
+            if intento < 2:
+                time.sleep(1)
+            continue
+        except Exception as e:
+            return {"error": str(e), "_ocr_method": "text"}
+
+    return {"error": f"JSON inválido tras reintentos: {str(last_json_error)}", "_ocr_method": "text"}
 
 
 # ─────────────────────────────────────────────
@@ -385,21 +397,27 @@ def extract_with_claude_vision(images: list[dict], doc_type: TipoDocumento) -> d
             }
         })
 
-    try:
-        raw = _llamar_claude(
-            client,
-            model="claude-sonnet-4-6",
-            max_tokens=2048,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": content}]
-        )
-        result = _parsear_json(raw)
-        result["_ocr_method"] = "vision"
-        return result
-    except json.JSONDecodeError as e:
-        return {"error": f"JSON inválido en Vision: {str(e)}", "_ocr_method": "vision"}
-    except Exception as e:
-        return {"error": str(e), "_ocr_method": "vision"}
+    messages = [{"role": "user", "content": content}]
+    last_json_error = None
+    for intento in range(3):  # intento inicial + hasta 2 reintentos
+        try:
+            raw, tokens = _llamar_claude(
+                client, model="claude-sonnet-4-6", max_tokens=2048,
+                system=SYSTEM_PROMPT, messages=messages
+            )
+            result = _parsear_json(raw)
+            result["_ocr_method"] = "vision"
+            result["_tokens_used"] = tokens
+            return result
+        except json.JSONDecodeError as e:
+            last_json_error = e
+            if intento < 2:
+                time.sleep(1)
+            continue
+        except Exception as e:
+            return {"error": str(e), "_ocr_method": "vision"}
+
+    return {"error": f"JSON inválido en Vision tras reintentos: {str(last_json_error)}", "_ocr_method": "vision"}
 
 
 # ─────────────────────────────────────────────

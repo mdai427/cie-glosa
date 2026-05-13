@@ -424,6 +424,53 @@ tbody tr:last-child td { border-bottom: none; }
   z-index: 50;
 }
 
+/* ===== DASHBOARD ===== */
+.dash-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.dash-metric-card {
+  background: var(--gris-card);
+  border: 1px solid var(--gris-borde);
+  border-radius: var(--radius);
+  padding: 22px 18px;
+  box-shadow: var(--shadow);
+  text-align: center;
+  border-top: 3px solid var(--azul);
+}
+.dash-metric-card.accent-verde  { border-top-color: var(--verde); }
+.dash-metric-card.accent-rojo   { border-top-color: var(--critico); }
+.dash-metric-card.accent-azul   { border-top-color: var(--azul-light); }
+.dash-num {
+  font-size: 34px; font-weight: 800;
+  color: var(--azul); display: block; line-height: 1.1;
+  margin-bottom: 6px;
+}
+.dash-num.verde { color: var(--verde); }
+.dash-num.rojo  { color: var(--critico); }
+.dash-num.azul  { color: var(--azul-light); }
+.dash-lbl {
+  font-size: 11px; font-weight: 700;
+  color: var(--gris-texto);
+  text-transform: uppercase; letter-spacing: 0.6px;
+}
+.dash-row {
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+.dash-chart-wrap { position: relative; height: 220px; }
+.top-campos-list { display: flex; flex-direction: column; gap: 10px; }
+.top-campo-item { display: flex; align-items: center; gap: 10px; }
+.top-campo-name { min-width: 150px; color: var(--azul-dark); font-size: 12px; font-weight: 500; }
+.top-campo-bar-wrap { flex: 1; background: var(--gris-bg); border-radius: 4px; height: 8px; overflow: hidden; }
+.top-campo-bar { height: 8px; border-radius: 4px; background: var(--azul); transition: width 0.5s ease; }
+.top-campo-count { min-width: 28px; text-align: right; color: var(--gris-texto); font-size: 12px; font-weight: 600; }
+.dash-error { color: var(--critico); font-size: 13px; text-align: center; padding: 20px; }
+
 /* ===== RESPONSIVE ===== */
 @media (max-width: 768px) {
   .doc-grid { grid-template-columns: repeat(2, 1fr); }
@@ -432,6 +479,8 @@ tbody tr:last-child td { border-bottom: none; }
   .semaforo-meta { display: none; }
   .container { padding: 20px 16px 48px; }
   .header-inner { padding: 0 16px; }
+  .dash-metrics { grid-template-columns: repeat(2, 1fr); }
+  .dash-row { grid-template-columns: 1fr; }
 }
 @media (max-width: 480px) {
   .doc-grid { grid-template-columns: 1fr 1fr; }
