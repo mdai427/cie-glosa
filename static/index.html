@@ -5,6 +5,73 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>GLOSA — Glosa Preventiva Aduanal</title>
   <link rel="stylesheet" href="/static/css/style.css" />
+  <style>
+    .contrib-card {
+      background: var(--gris-card);
+      border-radius: var(--radius);
+      margin-bottom: 18px;
+      border: 1px solid var(--gris-borde);
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+    .contrib-header {
+      padding: 14px 20px;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(255, 215, 0, 0.07);
+      color: var(--azul);
+      border-bottom: 1px solid var(--gris-borde);
+      user-select: none;
+    }
+    .contrib-header:hover { background: rgba(255, 215, 0, 0.12); }
+    #contrib-body { padding: 18px 20px; }
+    .contrib-aviso {
+      background: rgba(196, 126, 0, 0.09);
+      border-left: 3px solid var(--amarillo);
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      color: var(--gris-texto);
+      margin-bottom: 16px;
+    }
+    .contrib-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .contrib-item {
+      background: var(--gris-bg);
+      padding: 14px;
+      border-radius: 8px;
+      text-align: center;
+    }
+    .contrib-item.contrib-total {
+      grid-column: 1 / -1;
+      background: rgba(26, 138, 90, 0.08);
+      border: 1px solid rgba(26, 138, 90, 0.2);
+    }
+    .ci-label {
+      display: block;
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--gris-light);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .ci-val {
+      font-size: 17px;
+      font-weight: 800;
+      color: var(--azul);
+    }
+    .ci-igi { color: var(--alto); }
+    .ci-total-val { color: var(--verde); font-size: 21px; }
+  </style>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
@@ -184,6 +251,42 @@
           <div id="sin-hallazgos" class="sin-hallazgos" style="display:none">
             <span>✅</span><p>Sin hallazgos en este filtro</p>
           </div>
+        </div>
+      </div>
+
+      <!-- Tarjeta Contribuciones Estimadas -->
+      <div id="card-contribuciones" class="contrib-card" style="display:none">
+        <div class="contrib-header" onclick="toggleContrib()">
+          💰 Contribuciones Estimadas de Importación
+          <span id="contrib-toggle">▼</span>
+        </div>
+        <div id="contrib-body">
+          <div class="contrib-aviso">
+            ⚠️ Cálculo referencial. Verificar tasas exactas en TIGIE vigente y con el sistema del agente aduanal.
+          </div>
+          <div class="contrib-grid">
+            <div class="contrib-item">
+              <span class="ci-label">Valor en Aduana</span>
+              <span id="ci-valor" class="ci-val">—</span>
+            </div>
+            <div class="contrib-item">
+              <span class="ci-label">IGI Estimado</span>
+              <span id="ci-igi" class="ci-val ci-igi">—</span>
+            </div>
+            <div class="contrib-item">
+              <span class="ci-label">IVA</span>
+              <span id="ci-iva" class="ci-val">—</span>
+            </div>
+            <div class="contrib-item">
+              <span class="ci-label">DTA</span>
+              <span id="ci-dta" class="ci-val">—</span>
+            </div>
+            <div class="contrib-item contrib-total">
+              <span class="ci-label">Total Estimado</span>
+              <span id="ci-total" class="ci-val ci-total-val">—</span>
+            </div>
+          </div>
+          <div id="contrib-advertencias"></div>
         </div>
       </div>
 

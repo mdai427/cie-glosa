@@ -196,8 +196,9 @@ function mostrarResultado(data) {
     `<div class="doc-tag">📄 ${d}</div>`
   ).join('');
 
-  // Renderizar tabla
+  // Renderizar tabla y contribuciones
   renderizarTabla(todosHallazgos);
+  renderizarContribuciones(todosHallazgos);
 
   mostrarSeccion('resultado');
   window.scrollTo(0, 0);
@@ -427,6 +428,61 @@ async function exportarPDF() {
   }).from(elemento).save();
 
   document.body.removeChild(elemento);
+}
+
+// ===== CONTRIBUCIONES =====
+function renderizarContribuciones(hallazgos) {
+  const card = document.getElementById('card-contribuciones');
+  if (!card) return;
+
+  const hallazgoContrib = (hallazgos || []).find(h =>
+    h.campo === 'Contribuciones Estimadas de Importación'
+  );
+
+  if (!hallazgoContrib) { card.style.display = 'none'; return; }
+
+  card.style.display = 'block';
+
+  // Parsear el string de resumen: "IGI: $X | IVA: $Y | DTA: $Z | TOTAL ESTIMADO: $W"
+  const texto = hallazgoContrib.valor_documento_fuente || '';
+  const parseVal = (key) => {
+    const match = texto.match(new RegExp(key + ':\\s*\\$([\\d,\\.]+)'));
+    return match ? '$' + match[1] + ' MXN' : '—';
+  };
+
+  document.getElementById('ci-valor').textContent = hallazgoContrib.valor_pedimento || '—';
+  document.getElementById('ci-igi').textContent = parseVal('IGI');
+  document.getElementById('ci-iva').textContent = parseVal('IVA');
+  document.getElementById('ci-dta').textContent = parseVal('DTA');
+  document.getElementById('ci-total').textContent = parseVal('TOTAL ESTIMADO');
+
+  // Advertencias TLC
+  const tlcHallazgos = (hallazgos || []).filter(h =>
+    h.campo.includes('TLC') || h.campo.includes('Preferencial')
+  );
+  const divAdv = document.getElementById('contrib-advertencias');
+  if (divAdv && tlcHallazgos.length > 0) {
+    divAdv.innerHTML = tlcHallazgos.map(a =>
+      `<div style="font-size:12px;padding:8px 12px;background:rgba(27,43,107,0.06);border-left:3px solid var(--azul-light);border-radius:4px;margin-top:8px;color:var(--azul-dark)">
+        🔵 ${escHtml(a.accion_recomendada)}
+      </div>`
+    ).join('');
+  } else if (divAdv) {
+    divAdv.innerHTML = '';
+  }
+}
+
+function toggleContrib() {
+  const body = document.getElementById('contrib-body');
+  const toggle = document.getElementById('contrib-toggle');
+  if (!body) return;
+  if (body.style.display === 'none') {
+    body.style.display = 'block';
+    toggle.textContent = '▲';
+  } else {
+    body.style.display = 'none';
+    toggle.textContent = '▼';
+  }
 }
 
 // ===== DASHBOARD =====

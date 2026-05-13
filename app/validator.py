@@ -8,6 +8,8 @@ Versión 2 — incluye:
 import re
 from typing import Dict, List, Optional
 from app.models import Hallazgo, RiesgoNivel, SemaforoColor
+from app.catalogos import obtener_regulaciones
+from app.contribuciones import calcular_contribuciones
 
 
 # ─────────────────────────────────────────────
@@ -833,6 +835,143 @@ def validar_incrementables(ped: dict, factura: dict, carta: dict) -> List[Hallaz
 
 
 # ─────────────────────────────────────────────
+# BLOQUE J — NOMs Y REGULACIONES POR FRACCIÓN
+# ─────────────────────────────────────────────
+
+def validar_regulaciones_fraccion(ped: dict) -> List[Hallazgo]:
+    """Valida NOMs y regulaciones no arancelarias por fracción arancelaria."""
+    hallazgos = []
+    partidas = ped.get("partidas") or []
+    if not isinstance(partidas, list):
+        return hallazgos
+
+    for partida in partidas:
+        if not isinstance(partida, dict):
+            continue
+        fraccion = partida.get("fraccion") or ""
+        fraccion_limpia = fraccion.replace(".", "").replace(" ", "")
+        if not fraccion_limpia or len(fraccion_limpia) < 4:
+            continue
+
+        resultado = obtener_regulaciones(fraccion)
+        regs = resultado["regulaciones"]
+
+        if regs:
+            hallazgos.append(Hallazgo(
+                campo=f"Regulaciones NOM/Permisos — Fracción {fraccion}",
+                valor_pedimento=fraccion,
+                valor_documento_fuente="; ".join(regs),
+                documento_fuente="Catálogo Regulatorio GLOSA",
+                fundamento_legal="LIGIE / Acuerdo por el que se dan a conocer los trámites inscritos en el RUPE",
+                riesgo=RiesgoNivel.MEDIO,
+                accion_recomendada=(
+                    f"Verificar que se cuente con la documentación requerida: "
+                    f"{'; '.join(regs[:2])}{'...' if len(regs) > 2 else ''}"
+                ),
+                requiere_revision_humana=True,
+            ))
+
+        if resultado["tiene_precio_estimado_sat"]:
+            hallazgos.append(Hallazgo(
+                campo=f"Precio Estimado SAT — Fracción {fraccion}",
+                valor_pedimento=fraccion,
+                valor_documento_fuente="Fracción sujeta a precios estimados SAT",
+                documento_fuente="Lista de Precios Estimados SAT",
+                fundamento_legal="Art. 151 Ley Aduanera — Precios estimados",
+                riesgo=RiesgoNivel.ALTO,
+                accion_recomendada=(
+                    "Verificar que el valor declarado sea igual o superior al precio estimado "
+                    "SAT vigente. Consultar lista en el portal del SAT."
+                ),
+                requiere_revision_humana=True,
+            ))
+
+    return hallazgos
+
+
+# ─────────────────────────────────────────────
+# BLOQUE K — CONTRIBUCIONES ESTIMADAS
+# ─────────────────────────────────────────────
+
+def calcular_contribuciones_estimadas(ped: dict) -> List[Hallazgo]:
+    """Calcula contribuciones estimadas (IGI, IVA, DTA) y las presenta como hallazgos informativos."""
+    hallazgos = []
+
+    valor_aduana_raw = ped.get("valor_aduana") or ped.get("valor_comercial") or "0"
+    tipo_cambio_raw = ped.get("tipo_cambio") or "1"
+
+    try:
+        valor_aduana = extraer_numero(valor_aduana_raw) or 0.0
+        tipo_cambio = extraer_numero(tipo_cambio_raw) or 1.0
+
+        # Si el valor parece estar en dólares (< 100,000) y hay tipo de cambio > 1, convertir
+        if valor_aduana < 100_000 and tipo_cambio > 1:
+            valor_aduana_mxn = valor_aduana * tipo_cambio
+        else:
+            valor_aduana_mxn = valor_aduana
+
+        if valor_aduana_mxn <= 0:
+            return hallazgos
+
+        partidas = ped.get("partidas") or []
+        fraccion_principal = ""
+        pais_origen = ""
+        if partidas and isinstance(partidas, list) and isinstance(partidas[0], dict):
+            fraccion_principal = partidas[0].get("fraccion") or ""
+            pais_origen = partidas[0].get("pais_origen") or ""
+
+        resultado = calcular_contribuciones(
+            valor_aduana_mxn=valor_aduana_mxn,
+            fraccion=fraccion_principal,
+            pais_origen=pais_origen,
+            tiene_trato_preferencial=False,
+        )
+
+        resumen = (
+            f"IGI: ${resultado.igi_estimado:,.2f} MXN ({resultado.igi_tasa_aplicada * 100:.1f}%) | "
+            f"IVA: ${resultado.iva_estimado:,.2f} MXN | "
+            f"DTA: ${resultado.dta_estimado:,.2f} MXN | "
+            f"TOTAL ESTIMADO: ${resultado.total_estimado:,.2f} MXN"
+        )
+
+        hallazgos.append(Hallazgo(
+            campo="Contribuciones Estimadas de Importación",
+            valor_pedimento=f"Valor en aduana: ${valor_aduana_mxn:,.2f} MXN",
+            valor_documento_fuente=resumen,
+            documento_fuente="Cálculo GLOSA (referencial)",
+            fundamento_legal="Art. 49 LFD (DTA) | Art. 1° LIVA | TIGIE vigente (IGI)",
+            riesgo=RiesgoNivel.BAJO,
+            accion_recomendada=(
+                f"Verificar contribuciones contra cálculo del sistema. "
+                f"{'; '.join(resultado.advertencias[:2])}"
+            ),
+            requiere_revision_humana=False,
+        ))
+
+        # Alerta TLC si aplica
+        for adv in resultado.advertencias:
+            if "TLC" in adv or "preferencial" in adv.lower():
+                hallazgos.append(Hallazgo(
+                    campo="Oportunidad TLC — Verificar Trato Preferencial",
+                    valor_pedimento=pais_origen,
+                    valor_documento_fuente=adv,
+                    documento_fuente="Catálogo TLC México",
+                    fundamento_legal="Decreto de promulgación del tratado correspondiente",
+                    riesgo=RiesgoNivel.MEDIO,
+                    accion_recomendada=(
+                        "Si la mercancía califica bajo las reglas de origen del TLC, presentar "
+                        "certificado de origen para aplicar tasa preferencial y reducir IGI."
+                    ),
+                    requiere_revision_humana=True,
+                ))
+
+    except Exception:
+        pass  # No interrumpir el flujo si falla el cálculo
+
+    return hallazgos
+
+
+# ─────────────────────────────────────────────
 # SEMÁFORO
 # ─────────────────────────────────────────────
 
@@ -888,9 +1027,11 @@ def ejecutar_validaciones(documentos: Dict[str, dict]) -> tuple:
     hallazgos.extend(validar_moneda_valores(ped, fac))
     hallazgos.extend(validar_cove(ped, cove))
     hallazgos.extend(validar_logistica(ped, packing, bl))
-    hallazgos.extend(validar_partidas(ped, fac, packing))       # ← NUEVO v2
-    hallazgos.extend(validar_regla_318(fac, carta))              # ← MEJORADO v2
+    hallazgos.extend(validar_partidas(ped, fac, packing))
+    hallazgos.extend(validar_regla_318(fac, carta))
     hallazgos.extend(validar_incrementables(ped, fac, carta))
+    hallazgos.extend(validar_regulaciones_fraccion(ped))         # ← NOMs por fracción
+    hallazgos.extend(calcular_contribuciones_estimadas(ped))     # ← IGI/IVA/DTA estimados
 
     color, rec, criticos, altos, medios, bajos = calcular_semaforo(hallazgos)
     return hallazgos, color, rec, criticos, altos, medios, bajos

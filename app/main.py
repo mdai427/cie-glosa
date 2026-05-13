@@ -22,6 +22,7 @@ from app.extractor import process_document
 from app.validator import ejecutar_validaciones
 from app.models import ResultadoGlosa, SemaforoColor
 from app.security import verify_api_key, validar_archivo, sanitizar_nombre, MAX_FILES_PER_REVISION
+from app.contribuciones import calcular_contribuciones
 
 load_dotenv()
 
@@ -308,6 +309,43 @@ async def dashboard(
         "top_campos_hallazgos": top_campos,
         "revisiones_ultimos_7_dias": ultimos_7,
         "total_criticos": total_criticos,
+    }
+
+
+@app.get("/api/revision/{revision_id}/contribuciones")
+@limiter.limit("60/minute")
+async def calcular_contrib_revision(
+    request: Request,
+    revision_id: str,
+    _key: str = Depends(verify_api_key),
+):
+    """Retorna el cálculo detallado de contribuciones estimadas para una revisión guardada."""
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        async with db.execute(
+            "SELECT resultado_json FROM revisiones WHERE id = ?",
+            (revision_id.upper(),)
+        ) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Revisión no encontrada")
+            resultado = json.loads(row[0])
+
+    hallazgos = resultado.get("hallazgos", [])
+    contrib = next(
+        (h for h in hallazgos if h.get("campo") == "Contribuciones Estimadas de Importación"),
+        None
+    )
+    regulaciones = [
+        h for h in hallazgos
+        if "Regulaciones" in h.get("campo", "")
+        or "Precio Estimado SAT" in h.get("campo", "")
+        or "TLC" in h.get("campo", "")
+    ]
+
+    return {
+        "revision_id": revision_id.upper(),
+        "contribuciones": contrib,
+        "hallazgos_regulaciones": regulaciones,
     }
 
 
