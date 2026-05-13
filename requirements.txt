@@ -12,3 +12,5 @@ httpx==0.28.1
 pdf2image==1.17.0
 Pillow==11.1.0
 slowapi==0.1.9
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4

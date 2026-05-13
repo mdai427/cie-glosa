@@ -12,6 +12,7 @@ from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Depends, Req
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, EmailStr
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -20,8 +21,13 @@ from dotenv import load_dotenv
 from app.extractor import process_document
 from app.validator import ejecutar_validaciones
 from app.models import ResultadoGlosa, SemaforoColor
-from app.security import verify_api_key, validar_archivo, sanitizar_nombre, MAX_FILES_PER_REVISION
+from app.security import validar_archivo, sanitizar_nombre, MAX_FILES_PER_REVISION
 from app.contribuciones import calcular_contribuciones
+from app.auth import (
+    hash_password, verify_password, crear_token, generar_password_temporal,
+    get_current_user, get_admin_user
+)
+from app.email_service import enviar_bienvenida
 from app import db as database
 
 load_dotenv()
@@ -35,7 +41,7 @@ limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(
     title="GLOSA - Sistema de Glosa Preventiva Aduanal",
     description="Glosa automática de proforma de pedimento",
-    version="2.0.0"
+    version="3.0.0"
 )
 
 app.state.limiter = limiter
@@ -51,7 +57,7 @@ ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_methods=["GET", "POST", "DELETE"],
+    allow_methods=["GET", "POST", "DELETE", "PATCH", "PUT"],
     allow_headers=["*"],
 )
 
@@ -86,7 +92,7 @@ async def shutdown():
     await database.close_db()
 
 
-# ── Endpoints públicos (sin auth) ──────────────────────────────────────────
+# ── Endpoints públicos ─────────────────────────────────────────────────────
 
 @app.get("/health")
 async def health():
@@ -104,7 +110,133 @@ async def root():
     return HTMLResponse("<h1>GLOSA iniciando...</h1>")
 
 
-# ── Endpoints protegidos ───────────────────────────────────────────────────
+# ── Auth ───────────────────────────────────────────────────────────────────
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+@app.post("/api/auth/login")
+@limiter.limit("10/minute")
+async def login(request: Request, body: LoginRequest):
+    user = await database.obtener_usuario_por_email(body.email.strip().lower())
+    if not user:
+        raise HTTPException(status_code=401, detail="Credenciales incorrectas")
+    if not user["activo"]:
+        raise HTTPException(status_code=403, detail="Cuenta desactivada. Contacta al administrador.")
+    if not verify_password(body.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Credenciales incorrectas")
+
+    token = crear_token(user["id"], user["email"], user["nombre"], user["rol"])
+    return {
+        "token": token,
+        "user": {
+            "id": user["id"],
+            "email": user["email"],
+            "nombre": user["nombre"],
+            "rol": user["rol"],
+        }
+    }
+
+
+@app.get("/api/auth/me")
+async def me(current_user: dict = Depends(get_current_user)):
+    return current_user
+
+
+class CambiarPasswordRequest(BaseModel):
+    password_actual: str
+    password_nuevo: str
+
+
+@app.post("/api/auth/cambiar-password")
+@limiter.limit("5/minute")
+async def cambiar_password(
+    request: Request,
+    body: CambiarPasswordRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    user = await database.obtener_usuario_por_email(current_user["email"])
+    if not verify_password(body.password_actual, user["password_hash"]):
+        raise HTTPException(status_code=400, detail="Contraseña actual incorrecta")
+    if len(body.password_nuevo) < 8:
+        raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 8 caracteres")
+    new_hash = hash_password(body.password_nuevo)
+    await database.actualizar_password(user["id"], new_hash)
+    return {"message": "Contraseña actualizada correctamente"}
+
+
+# ── Admin: gestión de usuarios ─────────────────────────────────────────────
+
+class CrearUsuarioRequest(BaseModel):
+    email: str
+    nombre: str
+    rol: str = "ejecutivo"
+
+
+@app.post("/api/admin/usuarios")
+@limiter.limit("20/minute")
+async def crear_usuario_admin(
+    request: Request,
+    body: CrearUsuarioRequest,
+    admin: dict = Depends(get_admin_user),
+):
+    email = body.email.strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Email inválido")
+    if body.rol not in ("admin", "ejecutivo"):
+        raise HTTPException(status_code=400, detail="Rol debe ser 'admin' o 'ejecutivo'")
+
+    if await database.email_existe(email):
+        raise HTTPException(status_code=409, detail="Ya existe un usuario con ese email")
+
+    password = generar_password_temporal()
+    hashed = hash_password(password)
+    fecha = datetime.now().strftime("%d/%m/%Y %H:%M")
+    user_id = await database.crear_usuario(email, body.nombre.strip(), hashed, body.rol, fecha)
+
+    # Enviar correo con credenciales
+    correo_ok = await enviar_bienvenida(email, body.nombre.strip(), password, body.rol)
+
+    return {
+        "id": user_id,
+        "email": email,
+        "nombre": body.nombre.strip(),
+        "rol": body.rol,
+        "correo_enviado": correo_ok,
+        "password_temporal": password,  # Solo para mostrar en el panel si el correo falla
+    }
+
+
+@app.get("/api/admin/usuarios")
+@limiter.limit("30/minute")
+async def listar_usuarios_admin(
+    request: Request,
+    admin: dict = Depends(get_admin_user),
+):
+    return await database.listar_usuarios()
+
+
+@app.patch("/api/admin/usuarios/{user_id}/toggle")
+@limiter.limit("20/minute")
+async def toggle_usuario(
+    request: Request,
+    user_id: int,
+    admin: dict = Depends(get_admin_user),
+):
+    if user_id == int(admin["sub"]):
+        raise HTTPException(status_code=400, detail="No puedes desactivar tu propia cuenta")
+    users = await database.listar_usuarios()
+    user = next((u for u in users if u["id"] == user_id), None)
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    nuevo_estado = not user["activo"]
+    await database.toggle_usuario_activo(user_id, nuevo_estado)
+    return {"id": user_id, "activo": nuevo_estado}
+
+
+# ── Revisiones ─────────────────────────────────────────────────────────────
 
 @app.post("/api/revision")
 @limiter.limit("10/hour")
@@ -113,7 +245,7 @@ async def crear_revision(
     files: List[UploadFile] = File(...),
     referencia: Optional[str] = Form(None),
     cliente: Optional[str] = Form(None),
-    _key: str = Depends(verify_api_key),
+    current_user: dict = Depends(get_current_user),
 ):
     if not files:
         raise HTTPException(status_code=400, detail="No se recibieron archivos")
@@ -200,7 +332,7 @@ async def crear_revision(
 async def obtener_revision(
     request: Request,
     revision_id: str,
-    _key: str = Depends(verify_api_key),
+    current_user: dict = Depends(get_current_user),
 ):
     rjson = await database.obtener_revision_json(revision_id.upper())
     if not rjson:
@@ -212,7 +344,7 @@ async def obtener_revision(
 @limiter.limit("60/minute")
 async def listar_revisiones(
     request: Request,
-    _key: str = Depends(verify_api_key),
+    current_user: dict = Depends(get_current_user),
 ):
     return await database.listar_revisiones()
 
@@ -222,7 +354,7 @@ async def listar_revisiones(
 async def eliminar_revision(
     request: Request,
     revision_id: str,
-    _key: str = Depends(verify_api_key),
+    admin: dict = Depends(get_admin_user),
 ):
     await database.eliminar_revision(revision_id.upper())
     return {"message": "Revisión eliminada"}
@@ -232,9 +364,8 @@ async def eliminar_revision(
 @limiter.limit("60/minute")
 async def dashboard(
     request: Request,
-    _key: str = Depends(verify_api_key),
+    current_user: dict = Depends(get_current_user),
 ):
-    """Métricas agregadas de uso del sistema."""
     hace_7_dias = (datetime.now() - timedelta(days=7)).strftime("%d/%m/%Y")
 
     total = await database.contar_revisiones()
@@ -279,9 +410,8 @@ async def dashboard(
 async def calcular_contrib_revision(
     request: Request,
     revision_id: str,
-    _key: str = Depends(verify_api_key),
+    current_user: dict = Depends(get_current_user),
 ):
-    """Retorna el cálculo detallado de contribuciones estimadas para una revisión guardada."""
     rjson = await database.obtener_revision_json(revision_id.upper())
     if not rjson:
         raise HTTPException(status_code=404, detail="Revisión no encontrada")

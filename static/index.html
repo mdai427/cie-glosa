@@ -76,6 +76,48 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
+
+  <!-- ════════════════════════════════════════════════════════════
+       PANTALLA DE LOGIN (se oculta al autenticar)
+  ════════════════════════════════════════════════════════════ -->
+  <div id="pantalla-login" style="display:none">
+    <div class="login-bg">
+      <div class="login-card">
+        <!-- Logo -->
+        <div class="login-logo">
+          <img src="/static/img/cie-logo.png" alt="CIE" class="login-logo-img"
+               onerror="this.style.display='none';document.getElementById('login-logo-txt').style.display='block'"/>
+          <div id="login-logo-txt" style="display:none;font-size:32px;font-weight:900;color:#CC1F2F;letter-spacing:-1px">CIE</div>
+          <div class="login-logo-sub">GLOSA</div>
+          <div class="login-logo-desc">Glosa Preventiva Aduanal</div>
+        </div>
+
+        <form id="form-login" onsubmit="hacerLogin(event)">
+          <div class="login-field">
+            <label>Correo electrónico</label>
+            <input type="email" id="login-email" placeholder="usuario@empresa.com" required autocomplete="email"/>
+          </div>
+          <div class="login-field">
+            <label>Contraseña</label>
+            <div class="login-pass-wrap">
+              <input type="password" id="login-password" placeholder="••••••••" required autocomplete="current-password"/>
+              <button type="button" class="login-eye" onclick="toggleVerPass()" tabindex="-1">👁</button>
+            </div>
+          </div>
+          <div id="login-error" class="login-error" style="display:none"></div>
+          <button type="submit" class="btn-login" id="btn-login">Iniciar sesión</button>
+        </form>
+
+        <p class="login-footer">CIE — Sistema interno. Acceso restringido.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════
+       APP PRINCIPAL (se muestra tras autenticar)
+  ════════════════════════════════════════════════════════════ -->
+  <div id="app-principal" style="display:none">
+
   <!-- HEADER -->
   <header class="header">
     <div class="header-inner">
@@ -92,7 +134,13 @@
         <button class="nav-btn active" onclick="mostrarSeccion('nueva')">Nueva Revisión</button>
         <button class="nav-btn" onclick="mostrarSeccion('historial')">Historial</button>
         <button class="nav-btn" onclick="mostrarSeccion('dashboard')">Dashboard</button>
+        <button class="nav-btn admin-only" id="nav-admin" onclick="mostrarSeccion('admin')" style="display:none">Usuarios</button>
       </nav>
+      <div class="header-user">
+        <span id="header-nombre" class="header-nombre"></span>
+        <span id="header-rol" class="header-rol"></span>
+        <button class="btn-logout" onclick="cerrarSesion()" title="Cerrar sesión">⏻</button>
+      </div>
     </div>
   </header>
 
@@ -361,6 +409,55 @@
     </div>
   </main>
 
+  <!-- SECCIÓN: ADMIN USUARIOS -->
+  <main id="sec-admin" class="section" style="display:none">
+    <div class="container">
+      <div class="page-title">
+        <h1>Gestión de Usuarios</h1>
+        <p>Crea y administra los accesos al sistema.</p>
+      </div>
+
+      <!-- Formulario nuevo usuario -->
+      <div class="card">
+        <h2 class="card-title">Nuevo Usuario</h2>
+        <form id="form-nuevo-usuario" onsubmit="crearUsuario(event)">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Nombre completo</label>
+              <input type="text" id="nu-nombre" placeholder="Ej: María García" required />
+            </div>
+            <div class="form-group">
+              <label>Correo electrónico</label>
+              <input type="email" id="nu-email" placeholder="usuario@empresa.com" required />
+            </div>
+            <div class="form-group" style="max-width:180px">
+              <label>Rol</label>
+              <select id="nu-rol">
+                <option value="ejecutivo">Ejecutivo</option>
+                <option value="admin">Administrador</option>
+              </select>
+            </div>
+          </div>
+          <div id="nu-resultado" class="nu-resultado" style="display:none"></div>
+          <div class="submit-area" style="margin-top:0">
+            <button type="submit" class="btn-primary" id="btn-crear-usuario">
+              <span id="btn-crear-texto">+ Crear Usuario y Enviar Correo</span>
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Lista de usuarios -->
+      <div class="card">
+        <div class="card-header-row">
+          <h2 class="card-title">Usuarios Registrados</h2>
+          <button class="btn-secondary" style="font-size:12px;padding:6px 14px" onclick="cargarUsuarios()">↺ Actualizar</button>
+        </div>
+        <div id="tabla-usuarios"></div>
+      </div>
+    </div>
+  </main>
+
   <!-- LOADING OVERLAY -->
   <div id="loading" class="loading-overlay" style="display:none">
     <div class="loading-box">
@@ -375,6 +472,8 @@
       </div>
     </div>
   </div>
+
+  </div><!-- /app-principal -->
 
   <script src="/static/js/app.js"></script>
 </body>

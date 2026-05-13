@@ -3,28 +3,233 @@ let archivosSeleccionados = new DataTransfer();
 let resultadoActual = null;
 let todosHallazgos = [];
 let _chartSemaforo = null;
+let _usuarioActual = null;
 
-// ===== API KEY & FETCH HELPER =====
-function _obtenerApiKey() {
-  if (window.__GLOSA_KEY__) return window.__GLOSA_KEY__;
-  let key = sessionStorage.getItem('glosa_api_key');
-  if (!key) {
-    key = prompt('Ingresa la API Key de GLOSA (déjalo vacío si no hay):') || '';
-    if (key) sessionStorage.setItem('glosa_api_key', key);
-  }
-  return key;
+// ===== AUTH =====
+const TOKEN_KEY = 'glosa_jwt';
+const USER_KEY  = 'glosa_user';
+const INACTIVIDAD_MS = 8 * 60 * 60 * 1000; // 8 horas
+let _timerInactividad = null;
+
+function _getToken() {
+  return localStorage.getItem(TOKEN_KEY);
 }
 
+function _setSession(token, user) {
+  localStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(USER_KEY, JSON.stringify(user));
+  _usuarioActual = user;
+  _resetInactividad();
+}
+
+function _clearSession() {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+  _usuarioActual = null;
+  if (_timerInactividad) clearTimeout(_timerInactividad);
+}
+
+function _resetInactividad() {
+  if (_timerInactividad) clearTimeout(_timerInactividad);
+  _timerInactividad = setTimeout(() => {
+    _clearSession();
+    mostrarLogin('Tu sesión expiró por inactividad.');
+  }, INACTIVIDAD_MS);
+}
+
+// Reiniciar timer en cualquier interacción
+['click', 'keydown', 'mousemove', 'touchstart'].forEach(ev =>
+  document.addEventListener(ev, () => { if (_getToken()) _resetInactividad(); }, { passive: true })
+);
+
 async function apiFetch(url, options = {}) {
-  const key = _obtenerApiKey();
+  const token = _getToken();
   const headers = { ...(options.headers || {}) };
-  if (key) headers['X-Api-Key'] = key;
-  return fetch(url, { ...options, headers });
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(url, { ...options, headers });
+  if (res.status === 401) {
+    _clearSession();
+    mostrarLogin('Sesión expirada. Inicia sesión nuevamente.');
+    throw new Error('No autenticado');
+  }
+  return res;
+}
+
+// ===== INICIALIZACIÓN =====
+document.addEventListener('DOMContentLoaded', () => {
+  const token = _getToken();
+  const user  = localStorage.getItem(USER_KEY);
+  if (token && user) {
+    _usuarioActual = JSON.parse(user);
+    mostrarApp();
+  } else {
+    mostrarLogin();
+  }
+});
+
+function mostrarLogin(msg = '') {
+  document.getElementById('pantalla-login').style.display = 'block';
+  document.getElementById('app-principal').style.display  = 'none';
+  if (msg) {
+    const el = document.getElementById('login-error');
+    el.textContent = msg;
+    el.style.display = 'block';
+  }
+  document.getElementById('login-email').value    = '';
+  document.getElementById('login-password').value = '';
+}
+
+function mostrarApp() {
+  document.getElementById('pantalla-login').style.display = 'none';
+  document.getElementById('app-principal').style.display  = 'block';
+  // Nombre y rol en header
+  document.getElementById('header-nombre').textContent = _usuarioActual.nombre || '';
+  document.getElementById('header-rol').textContent    = _usuarioActual.rol === 'admin' ? 'Admin' : 'Ejecutivo';
+  // Botón admin solo para admins
+  const navAdmin = document.getElementById('nav-admin');
+  if (navAdmin) navAdmin.style.display = _usuarioActual.rol === 'admin' ? 'inline-flex' : 'none';
+  _resetInactividad();
+}
+
+async function hacerLogin(e) {
+  e.preventDefault();
+  const btn = document.getElementById('btn-login');
+  const errEl = document.getElementById('login-error');
+  errEl.style.display = 'none';
+  btn.disabled = true;
+  btn.textContent = 'Iniciando sesión...';
+
+  const email    = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.detail || 'Error al iniciar sesión';
+      errEl.style.display = 'block';
+      return;
+    }
+    _setSession(data.token, data.user);
+    mostrarApp();
+    mostrarSeccion('nueva');
+  } catch (err) {
+    errEl.textContent = 'Error de conexión. Intenta de nuevo.';
+    errEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Iniciar sesión';
+  }
+}
+
+function toggleVerPass() {
+  const inp = document.getElementById('login-password');
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+function cerrarSesion() {
+  _clearSession();
+  mostrarLogin();
+}
+
+// ===== ADMIN: USUARIOS =====
+async function cargarUsuarios() {
+  const div = document.getElementById('tabla-usuarios');
+  if (!div) return;
+  div.innerHTML = '<p style="color:var(--text3);text-align:center;padding:20px">Cargando...</p>';
+  try {
+    const res = await apiFetch('/api/admin/usuarios');
+    const lista = await res.json();
+    if (!lista.length) {
+      div.innerHTML = '<p style="color:var(--gris-texto);text-align:center;padding:20px">Sin usuarios registrados.</p>';
+      return;
+    }
+    div.innerHTML = `
+      <table class="usuarios-table">
+        <thead><tr>
+          <th>Nombre</th><th>Correo</th><th>Rol</th><th>Estado</th><th>Creado</th><th>Acción</th>
+        </tr></thead>
+        <tbody>${lista.map(u => `
+          <tr>
+            <td><strong>${escHtml(u.nombre)}</strong></td>
+            <td>${escHtml(u.email)}</td>
+            <td><span class="rol-badge ${u.rol}">${u.rol === 'admin' ? 'Admin' : 'Ejecutivo'}</span></td>
+            <td><span class="estado-badge ${u.activo ? 'activo' : 'inactivo'}">${u.activo ? 'Activo' : 'Inactivo'}</span></td>
+            <td style="color:var(--gris-texto);font-size:12px">${escHtml(u.created_at || '')}</td>
+            <td>
+              ${u.id !== _usuarioActual?.id ? `
+                <button class="btn-toggle ${u.activo ? 'desactivar' : 'activar'}"
+                  onclick="toggleUsuario(${u.id}, ${u.activo})">
+                  ${u.activo ? 'Desactivar' : 'Activar'}
+                </button>` : '<span style="color:#aaa;font-size:11px">Tú</span>'}
+            </td>
+          </tr>
+        `).join('')}</tbody>
+      </table>`;
+  } catch (err) {
+    div.innerHTML = `<p style="color:var(--critico);padding:20px">Error: ${err.message}</p>`;
+  }
+}
+
+async function crearUsuario(e) {
+  e.preventDefault();
+  const btn = document.getElementById('btn-crear-usuario');
+  const resEl = document.getElementById('nu-resultado');
+  resEl.style.display = 'none';
+  btn.disabled = true;
+  document.getElementById('btn-crear-texto').textContent = 'Creando...';
+
+  const nombre = document.getElementById('nu-nombre').value.trim();
+  const email  = document.getElementById('nu-email').value.trim();
+  const rol    = document.getElementById('nu-rol').value;
+
+  try {
+    const res = await apiFetch('/api/admin/usuarios', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nombre, email, rol }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      resEl.className = 'nu-resultado error';
+      resEl.textContent = data.detail || 'Error al crear usuario';
+      resEl.style.display = 'block';
+      return;
+    }
+    resEl.className = 'nu-resultado ok';
+    const correoMsg = data.correo_enviado
+      ? `✅ Usuario creado y correo enviado a ${data.email}`
+      : `✅ Usuario creado. Correo no enviado — contraseña temporal: ${data.password_temporal}`;
+    resEl.textContent = correoMsg;
+    resEl.style.display = 'block';
+    document.getElementById('form-nuevo-usuario').reset();
+    cargarUsuarios();
+  } catch (err) {
+    resEl.className = 'nu-resultado error';
+    resEl.textContent = `Error: ${err.message}`;
+    resEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    document.getElementById('btn-crear-texto').textContent = '+ Crear Usuario y Enviar Correo';
+  }
+}
+
+async function toggleUsuario(id, activoActual) {
+  try {
+    const res = await apiFetch(`/api/admin/usuarios/${id}/toggle`, { method: 'PATCH' });
+    if (res.ok) cargarUsuarios();
+  } catch (err) {
+    alert(`Error: ${err.message}`);
+  }
 }
 
 // ===== NAVEGACIÓN =====
 function mostrarSeccion(seccion) {
-  ['nueva', 'resultado', 'historial', 'dashboard'].forEach(s => {
+  ['nueva', 'resultado', 'historial', 'dashboard', 'admin'].forEach(s => {
     const el = document.getElementById(`sec-${s}`);
     if (el) el.style.display = 'none';
   });
@@ -32,14 +237,14 @@ function mostrarSeccion(seccion) {
   if (target) target.style.display = 'block';
 
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-  // Mapear sección a keyword del botón de nav
-  const navKeyword = { nueva: 'nueva', resultado: 'nueva', historial: 'historial', dashboard: 'dashboard' };
+  const navKeyword = { nueva: 'nueva', resultado: 'nueva', historial: 'historial', dashboard: 'dashboard', admin: 'usuarios' };
   const keyword = navKeyword[seccion] || seccion;
   const btn = [...document.querySelectorAll('.nav-btn')].find(b => b.textContent.toLowerCase().includes(keyword));
   if (btn) btn.classList.add('active');
 
   if (seccion === 'historial') cargarHistorial();
   if (seccion === 'dashboard') cargarDashboard();
+  if (seccion === 'admin') cargarUsuarios();
 }
 
 // ===== MANEJO DE ARCHIVOS =====
