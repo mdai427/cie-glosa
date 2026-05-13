@@ -2,6 +2,7 @@ import os
 import uuid
 import json
 import logging
+import secrets
 import aiofiles
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -97,6 +98,42 @@ async def shutdown():
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+class SetupAdminRequest(BaseModel):
+    setup_key: str
+    email: str
+    nombre: str
+    password: str
+
+
+@app.post("/api/setup/admin")
+@limiter.limit("5/hour")
+async def setup_primer_admin(request: Request, body: SetupAdminRequest):
+    """
+    Crea el primer admin. Solo funciona si no existe ningún usuario en la DB.
+    Requiere SETUP_KEY env var para evitar uso no autorizado.
+    """
+    setup_key_env = os.getenv("SETUP_KEY", "")
+    if not setup_key_env:
+        raise HTTPException(status_code=403, detail="Setup deshabilitado (SETUP_KEY no configurada)")
+    if not secrets.compare_digest(setup_key_env, body.setup_key):
+        raise HTTPException(status_code=403, detail="Setup key incorrecta")
+
+    # Solo funciona si no hay usuarios
+    usuarios = await database.listar_usuarios()
+    if usuarios:
+        raise HTTPException(status_code=409, detail="Ya existen usuarios. Usa el panel de admin.")
+
+    if len(body.password) < 8:
+        raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 8 caracteres")
+
+    hashed = hash_password(body.password)
+    fecha = datetime.now().strftime("%d/%m/%Y %H:%M")
+    user_id = await database.crear_usuario(
+        body.email.strip().lower(), body.nombre.strip(), hashed, "admin", fecha
+    )
+    return {"message": "Admin creado exitosamente", "id": user_id, "email": body.email}
 
 
 @app.get("/", response_class=HTMLResponse)
