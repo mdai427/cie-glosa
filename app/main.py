@@ -2,7 +2,6 @@ import os
 import uuid
 import json
 import logging
-import aiosqlite
 import aiofiles
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -23,6 +22,7 @@ from app.validator import ejecutar_validaciones
 from app.models import ResultadoGlosa, SemaforoColor
 from app.security import verify_api_key, validar_archivo, sanitizar_nombre, MAX_FILES_PER_REVISION
 from app.contribuciones import calcular_contribuciones
+from app import db as database
 
 load_dotenv()
 
@@ -57,7 +57,6 @@ app.add_middleware(
 
 BASE_DIR = Path(__file__).parent.parent
 UPLOAD_DIR = BASE_DIR / "uploads"
-DB_PATH = BASE_DIR / "glosa.db"
 STATIC_DIR = BASE_DIR / "static"
 
 UPLOAD_DIR.mkdir(exist_ok=True)
@@ -69,24 +68,7 @@ _HTML_CACHE: str = ""
 async def startup():
     global _HTML_CACHE
     try:
-        async with aiosqlite.connect(str(DB_PATH)) as db:
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS revisiones (
-                    id TEXT PRIMARY KEY,
-                    referencia TEXT,
-                    cliente TEXT,
-                    fecha_revision TEXT,
-                    resultado_json TEXT,
-                    estatus TEXT DEFAULT 'completado'
-                )
-            """)
-            await db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_revisiones_cliente ON revisiones(cliente)"
-            )
-            await db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_revisiones_fecha ON revisiones(fecha_revision)"
-            )
-            await db.commit()
+        await database.init_db()
     except Exception as e:
         logger.error(f"DB init error: {e}")
 
@@ -97,6 +79,11 @@ async def startup():
                 _HTML_CACHE = await f.read()
     except Exception as e:
         logger.error(f"HTML cache error: {e}")
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    await database.close_db()
 
 
 # ── Endpoints públicos (sin auth) ──────────────────────────────────────────
@@ -150,7 +137,6 @@ async def crear_revision(
         if not file.filename:
             continue
 
-        # Validar archivo (tamaño, tipo real, extensión)
         try:
             contenido = await validar_archivo(file)
         except HTTPException:
@@ -199,12 +185,10 @@ async def crear_revision(
     )
 
     try:
-        async with aiosqlite.connect(str(DB_PATH)) as db:
-            await db.execute(
-                "INSERT INTO revisiones VALUES (?, ?, ?, ?, ?, ?)",
-                (revision_id, ref, cliente or "", fecha, resultado.model_dump_json(), "completado")
-            )
-            await db.commit()
+        await database.insertar_revision(
+            revision_id, ref, cliente or "", fecha,
+            resultado.model_dump_json(), "completado"
+        )
     except Exception as e:
         logger.error(f"Error guardando revision {revision_id} en DB: {e}")
 
@@ -218,15 +202,10 @@ async def obtener_revision(
     revision_id: str,
     _key: str = Depends(verify_api_key),
 ):
-    async with aiosqlite.connect(str(DB_PATH)) as db:
-        async with db.execute(
-            "SELECT resultado_json FROM revisiones WHERE id = ?",
-            (revision_id.upper(),)
-        ) as cursor:
-            row = await cursor.fetchone()
-            if not row:
-                raise HTTPException(status_code=404, detail="Revisión no encontrada")
-            return JSONResponse(content=json.loads(row[0]))
+    rjson = await database.obtener_revision_json(revision_id.upper())
+    if not rjson:
+        raise HTTPException(status_code=404, detail="Revisión no encontrada")
+    return JSONResponse(content=json.loads(rjson))
 
 
 @app.get("/api/revisiones")
@@ -235,15 +214,7 @@ async def listar_revisiones(
     request: Request,
     _key: str = Depends(verify_api_key),
 ):
-    async with aiosqlite.connect(str(DB_PATH)) as db:
-        async with db.execute(
-            "SELECT id, referencia, cliente, fecha_revision, estatus FROM revisiones ORDER BY rowid DESC LIMIT 50"
-        ) as cursor:
-            rows = await cursor.fetchall()
-            return [
-                {"id": r[0], "referencia": r[1], "cliente": r[2], "fecha": r[3], "estatus": r[4]}
-                for r in rows
-            ]
+    return await database.listar_revisiones()
 
 
 @app.delete("/api/revision/{revision_id}")
@@ -253,9 +224,7 @@ async def eliminar_revision(
     revision_id: str,
     _key: str = Depends(verify_api_key),
 ):
-    async with aiosqlite.connect(str(DB_PATH)) as db:
-        await db.execute("DELETE FROM revisiones WHERE id = ?", (revision_id.upper(),))
-        await db.commit()
+    await database.eliminar_revision(revision_id.upper())
     return {"message": "Revisión eliminada"}
 
 
@@ -268,40 +237,33 @@ async def dashboard(
     """Métricas agregadas de uso del sistema."""
     hace_7_dias = (datetime.now() - timedelta(days=7)).strftime("%d/%m/%Y")
 
-    async with aiosqlite.connect(str(DB_PATH)) as db:
-        # Total revisiones
-        async with db.execute("SELECT COUNT(*) FROM revisiones") as cur:
-            total = (await cur.fetchone())[0]
+    total = await database.contar_revisiones()
+    all_json = await database.obtener_todas_revisiones_json()
 
-        # Por semáforo
-        por_semaforo = {"verde": 0, "amarillo": 0, "rojo": 0, "negro": 0}
-        async with db.execute("SELECT resultado_json FROM revisiones") as cur:
-            rows = await cur.fetchall()
+    por_semaforo = {"verde": 0, "amarillo": 0, "rojo": 0, "negro": 0}
+    campos_counter: Counter = Counter()
+    ultimos_7 = 0
+    total_criticos = 0
 
-        campos_counter: Counter = Counter()
-        ultimos_7 = 0
-        total_criticos = 0
+    for rjson in all_json:
+        try:
+            r = json.loads(rjson)
+            sem = r.get("semaforo", "")
+            if sem in por_semaforo:
+                por_semaforo[sem] += 1
+            for h in r.get("hallazgos", []):
+                campos_counter[h.get("campo", "")] += 1
+            total_criticos += r.get("total_criticos", 0)
+            fecha_str = r.get("fecha_revision", "")
+            if fecha_str and fecha_str[:10] >= hace_7_dias:
+                ultimos_7 += 1
+        except Exception:
+            pass
 
-        for (rjson,) in rows:
-            try:
-                r = json.loads(rjson)
-                sem = r.get("semaforo", "")
-                if sem in por_semaforo:
-                    por_semaforo[sem] += 1
-                for h in r.get("hallazgos", []):
-                    campos_counter[h.get("campo", "")] += 1
-                total_criticos += r.get("total_criticos", 0)
-                # Últimos 7 días (formato DD/MM/YYYY HH:MM)
-                fecha_str = r.get("fecha_revision", "")
-                if fecha_str and fecha_str[:10] >= hace_7_dias:
-                    ultimos_7 += 1
-            except Exception:
-                pass
-
-        top_campos = [
-            {"campo": campo, "count": cnt}
-            for campo, cnt in campos_counter.most_common(10)
-        ]
+    top_campos = [
+        {"campo": campo, "count": cnt}
+        for campo, cnt in campos_counter.most_common(10)
+    ]
 
     return {
         "total_revisiones": total,
@@ -320,15 +282,10 @@ async def calcular_contrib_revision(
     _key: str = Depends(verify_api_key),
 ):
     """Retorna el cálculo detallado de contribuciones estimadas para una revisión guardada."""
-    async with aiosqlite.connect(str(DB_PATH)) as db:
-        async with db.execute(
-            "SELECT resultado_json FROM revisiones WHERE id = ?",
-            (revision_id.upper(),)
-        ) as cursor:
-            row = await cursor.fetchone()
-            if not row:
-                raise HTTPException(status_code=404, detail="Revisión no encontrada")
-            resultado = json.loads(row[0])
+    rjson = await database.obtener_revision_json(revision_id.upper())
+    if not rjson:
+        raise HTTPException(status_code=404, detail="Revisión no encontrada")
+    resultado = json.loads(rjson)
 
     hallazgos = resultado.get("hallazgos", [])
     contrib = next(
