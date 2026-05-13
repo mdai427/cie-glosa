@@ -333,10 +333,80 @@ def _llamar_claude(client, model: str, max_tokens: int, system: str, messages: l
 
 
 def _parsear_json(raw: str) -> dict:
-    raw = re.sub(r'^```json\s*', '', raw)
-    raw = re.sub(r'^```\s*', '', raw)
-    raw = re.sub(r'\s*```$', '', raw)
-    return json.loads(raw.strip())
+    """Parsea JSON de respuesta de Claude, tolerando markdown y trailing commas."""
+    # Quitar bloques markdown
+    raw = re.sub(r'^```json\s*', '', raw, flags=re.MULTILINE)
+    raw = re.sub(r'^```\s*', '', raw, flags=re.MULTILINE)
+    raw = re.sub(r'\s*```$', '', raw, flags=re.MULTILINE)
+    raw = raw.strip()
+
+    # Intento 1: parsear directamente
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+
+    # Intento 2: eliminar trailing commas (,} y ,])
+    cleaned = re.sub(r',\s*([}\]])', r'\1', raw)
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+
+    # Intento 3: JSON truncado — cerrar estructuras abiertas
+    fixed = _cerrar_json_truncado(cleaned)
+    if fixed:
+        try:
+            return json.loads(fixed)
+        except json.JSONDecodeError:
+            pass
+
+    # Forzar error original para el mensaje de excepción
+    return json.loads(raw)
+
+
+def _cerrar_json_truncado(raw: str) -> str:
+    """
+    Intenta cerrar un JSON truncado contando llaves y corchetes abiertos.
+    Solo funciona si el truncado ocurrió dentro de un objeto/array válido.
+    """
+    # Eliminar el último par incompleto (clave sin valor, o valor a medias)
+    # Truncar hasta la última coma o abre-llave válida
+    truncado = raw.rstrip()
+
+    # Quitar el último fragmento incompleto (sin cierre de string ni valor)
+    truncado = re.sub(r',?\s*"[^"]*$', '', truncado)  # clave sin valor
+    truncado = re.sub(r',?\s*"[^"]*":\s*[^,{\[\]"}]*$', '', truncado)  # valor incompleto
+
+    # Contar estructuras abiertas
+    stack = []
+    in_string = False
+    escape = False
+    for ch in truncado:
+        if escape:
+            escape = False
+            continue
+        if ch == '\\' and in_string:
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if not in_string:
+            if ch in '{[':
+                stack.append(ch)
+            elif ch in '}]':
+                if stack:
+                    stack.pop()
+
+    if not stack:
+        return truncado
+
+    # Cerrar en orden inverso
+    cierre = ''
+    for ch in reversed(stack):
+        cierre += '}' if ch == '{' else ']'
+    return truncado + cierre
 
 
 # ─────────────────────────────────────────────
@@ -355,7 +425,7 @@ def extract_with_claude_text(text: str, doc_type: TipoDocumento) -> dict:
     for intento in range(3):  # intento inicial + hasta 2 reintentos
         try:
             raw, tokens = _llamar_claude(
-                client, model="claude-sonnet-4-6", max_tokens=2048,
+                client, model="claude-sonnet-4-6", max_tokens=4096,
                 system=SYSTEM_PROMPT, messages=messages
             )
             datos = _parsear_json(raw)
@@ -402,7 +472,7 @@ def extract_with_claude_vision(images: list[dict], doc_type: TipoDocumento) -> d
     for intento in range(3):  # intento inicial + hasta 2 reintentos
         try:
             raw, tokens = _llamar_claude(
-                client, model="claude-sonnet-4-6", max_tokens=2048,
+                client, model="claude-sonnet-4-6", max_tokens=4096,
                 system=SYSTEM_PROMPT, messages=messages
             )
             result = _parsear_json(raw)
