@@ -312,122 +312,218 @@ async function exportarPDF() {
     }
   } catch (_) {}
 
-  const semColors = { verde: '#2ed573', amarillo: '#f0a500', rojo: '#CC1F2F', negro: '#6c5ce7' };
-  const semNombres = { verde: 'PUEDE VALIDAR', amarillo: 'REVISAR', rojo: 'NO VALIDAR', negro: 'ESCALAR' };
-  const color = semColors[resultadoActual.semaforo] || '#888';
-
-  // Construir filas de tabla
-  let filas = '';
-  (resultadoActual.hallazgos || []).forEach((h, i) => {
-    const bgColor = { Crítico: '#fff5f5', Alto: '#fff8f0', Medio: '#fffef0', Bajo: '#f0fff4' }[h.riesgo] || '#fff';
-    const riesgoColor = { Crítico: '#CC1F2F', Alto: '#e67e22', Medio: '#c49b0a', Bajo: '#27ae60' }[h.riesgo] || '#888';
-    filas += `<tr style="background:${i%2===0?'#fff':bgColor}">
-      <td style="font-weight:600;color:#1B2B6B">${h.campo}</td>
-      <td>${h.valor_pedimento}</td>
-      <td>${h.valor_documento_fuente}</td>
-      <td style="color:#555">${h.documento_fuente}</td>
-      <td style="font-size:9px;color:#666">${h.fundamento_legal}</td>
-      <td style="text-align:center"><span style="background:${riesgoColor};color:#fff;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700">${h.riesgo}</span></td>
-      <td style="font-size:9px">${h.accion_recomendada}</td>
-    </tr>`;
-  });
+  const semColors  = { verde: '#1A8A5A', amarillo: '#C47E00', rojo: '#CC1F2F', negro: '#6B4FCC' };
+  const semBg      = { verde: '#EAF7F1', amarillo: '#FFF8E6', rojo: '#FDEAEC', negro: '#F0ECFF' };
+  const semNombres = { verde: 'PUEDE VALIDAR', amarillo: 'REVISAR ANTES DE VALIDAR', rojo: 'NO VALIDAR', negro: 'RIESGO GRAVE — ESCALAR' };
+  const color   = semColors[resultadoActual.semaforo] || '#888';
+  const colorBg = semBg[resultadoActual.semaforo]    || '#f9f9f9';
 
   const logoTag = logoSrc
-    ? `<img src="${logoSrc}" style="height:44px;object-fit:contain;display:block">`
-    : `<span style="font-size:20px;font-weight:900;color:#CC1F2F">CIE</span>`;
+    ? `<img src="${logoSrc}" style="height:46px;object-fit:contain;display:block">`
+    : `<div style="font-size:22px;font-weight:900;color:#CC1F2F;letter-spacing:-1px">CIE</div>`;
 
-  const contenido = `
-    <div style="font-family:Arial,sans-serif;font-size:11px;color:#1a1a2e;background:#fff">
-      <!-- HEADER -->
-      <div style="background:#1B2B6B;display:flex;align-items:stretch;border-bottom:5px solid #CC1F2F;margin-bottom:20px">
-        <div style="background:#fff;padding:12px 18px;display:flex;align-items:center;min-width:130px">${logoTag}</div>
-        <div style="padding:12px 20px;color:#fff;flex:1">
-          <div style="font-size:17px;font-weight:700;letter-spacing:.5px">Glosa Preventiva Aduanal</div>
-          <div style="font-size:10px;opacity:.75;margin-top:2px">CIE Agencia Aduanal — Reporte de Revisión</div>
-        </div>
-        <div style="background:rgba(0,0,0,.25);padding:12px 18px;color:#fff;font-size:10px;text-align:right;display:flex;flex-direction:column;justify-content:center;gap:3px">
-          <div><b>REF:</b> ${resultadoActual.referencia}</div>
-          <div><b>FECHA:</b> ${resultadoActual.fecha_revision}</div>
-          <div><b>ID:</b> ${resultadoActual.id}</div>
-        </div>
+  // Filas de la tabla de hallazgos
+  let filas = '';
+  (resultadoActual.hallazgos || []).forEach((h, i) => {
+    const rowBg = i % 2 === 0 ? '#ffffff' : '#f7f9fc';
+    const riesgoColor = { Crítico:'#CC1F2F', Alto:'#C47E00', Medio:'#1B6CB0', Bajo:'#1A8A5A' }[h.riesgo] || '#888';
+    const riesgoBg    = { Crítico:'#FDEAEC', Alto:'#FFF8E6', Medio:'#E8F2FF', Bajo:'#EAF7F1'  }[h.riesgo] || '#f0f0f0';
+    filas += `
+      <tr style="background:${rowBg}">
+        <td style="font-weight:700;color:#1B2B6B;font-size:10px">${escHtml(h.campo)}</td>
+        <td style="font-size:10px">${escHtml(h.valor_pedimento)}</td>
+        <td style="font-size:10px">${escHtml(h.valor_documento_fuente)}</td>
+        <td style="color:#555;font-size:10px">${escHtml(h.documento_fuente)}</td>
+        <td style="font-size:9px;color:#666">${escHtml(h.fundamento_legal)}</td>
+        <td style="text-align:center">
+          <span style="background:${riesgoBg};color:${riesgoColor};padding:3px 10px;border-radius:12px;font-size:9px;font-weight:700;white-space:nowrap">${escHtml(h.riesgo)}</span>
+        </td>
+        <td style="font-size:9px;color:#444">${escHtml(h.accion_recomendada)}</td>
+      </tr>`;
+  });
+
+  const fecha = resultadoActual.fecha_revision || '';
+
+  const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Glosa ${resultadoActual.referencia} — ${resultadoActual.id}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, Helvetica, sans-serif; font-size: 11px; color: #1a1a2e; background: #fff; }
+    /* ---- Print controls (oculto al imprimir) ---- */
+    .print-bar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 999;
+      background: #1B2B6B; padding: 10px 20px;
+      display: flex; align-items: center; gap: 14px;
+      border-bottom: 3px solid #CC1F2F;
+    }
+    .print-bar button {
+      background: #CC1F2F; color: #fff; border: none;
+      padding: 8px 22px; border-radius: 6px; font-size: 13px;
+      font-weight: 700; cursor: pointer; font-family: Arial, sans-serif;
+    }
+    .print-bar button:hover { background: #a5111f; }
+    .print-bar span { color: rgba(255,255,255,0.75); font-size: 12px; }
+    .print-content { margin-top: 58px; padding: 20px; max-width: 1100px; margin-left: auto; margin-right: auto; }
+    /* ---- Impresión ---- */
+    @media print {
+      .print-bar { display: none !important; }
+      .print-content { margin-top: 0; padding: 0; max-width: none; }
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      @page { size: A4 landscape; margin: 10mm; }
+      tr { page-break-inside: avoid; }
+    }
+    /* ---- Header ---- */
+    .rpt-header {
+      background: #1B2B6B;
+      border-bottom: 5px solid #CC1F2F;
+      margin-bottom: 18px;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .rpt-header table { width: 100%; border-collapse: collapse; }
+    .rpt-header td { padding: 0; vertical-align: middle; }
+    .hd-logo  { background: #fff; padding: 12px 18px; width: 140px; text-align: center; }
+    .hd-title { padding: 12px 20px; color: #fff; }
+    .hd-title h1 { font-size: 17px; font-weight: 700; letter-spacing: .4px; margin-bottom: 3px; }
+    .hd-title p  { font-size: 10px; opacity: .75; }
+    .hd-meta  { background: rgba(0,0,0,.22); padding: 12px 18px; color: #fff; font-size: 10px; text-align: right; white-space: nowrap; }
+    .hd-meta div { margin-bottom: 3px; }
+    /* ---- Semáforo ---- */
+    .sem-band {
+      padding: 12px 18px; border-radius: 7px;
+      border-left: 6px solid ${color};
+      background: ${colorBg};
+      margin-bottom: 16px;
+      display: table; width: 100%;
+    }
+    .sem-dot  { display: table-cell; vertical-align: middle; width: 22px; }
+    .sem-dot span { display: inline-block; width: 16px; height: 16px; border-radius: 50%; background: ${color}; }
+    .sem-text { display: table-cell; vertical-align: middle; padding-left: 12px; }
+    .sem-text strong { font-size: 14px; font-weight: 800; color: ${color}; display: block; }
+    .sem-text em { font-size: 10px; color: #555; font-style: normal; }
+    /* ---- Contadores ---- */
+    .contadores { border-collapse: collapse; width: 100%; margin-bottom: 16px; }
+    .contadores td { width: 25%; text-align: center; padding: 10px; border-radius: 8px; }
+    .cnt-num { font-size: 26px; font-weight: 800; display: block; }
+    .cnt-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: .5px; }
+    .cnt-c { border-top: 3px solid #CC1F2F; background: #FDEAEC; }
+    .cnt-c .cnt-num { color: #CC1F2F; }
+    .cnt-a { border-top: 3px solid #C47E00; background: #FFF8E6; }
+    .cnt-a .cnt-num { color: #C47E00; }
+    .cnt-m { border-top: 3px solid #1B6CB0; background: #E8F2FF; }
+    .cnt-m .cnt-num { color: #1B6CB0; }
+    .cnt-b { border-top: 3px solid #1A8A5A; background: #EAF7F1; }
+    .cnt-b .cnt-num { color: #1A8A5A; }
+    /* ---- Tabla ---- */
+    .tbl-title { font-size: 12px; font-weight: 700; color: #1B2B6B; padding: 6px 0; border-bottom: 2px solid #1B2B6B; margin-bottom: 8px; }
+    .hallazgos-table { width: 100%; border-collapse: collapse; }
+    .hallazgos-table th { background: #1B2B6B; color: #fff; padding: 7px 8px; text-align: left; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; }
+    .hallazgos-table td { padding: 7px 8px; border-bottom: 1px solid #e8ecf4; vertical-align: top; line-height: 1.4; }
+    /* ---- Footer ---- */
+    .rpt-footer { text-align: center; color: #bbb; font-size: 9px; margin-top: 20px; padding-top: 10px; border-top: 1px solid #e0e4ef; }
+  </style>
+</head>
+<body>
+  <!-- Barra de impresión (solo en pantalla) -->
+  <div class="print-bar">
+    <button onclick="window.print()">⬇ Guardar como PDF</button>
+    <span>En el diálogo de impresión selecciona <b>"Guardar como PDF"</b> como destino — Tamaño: A4 Horizontal</span>
+  </div>
+
+  <div class="print-content">
+    <!-- HEADER -->
+    <div class="rpt-header">
+      <table><tr>
+        <td class="hd-logo">${logoTag}</td>
+        <td class="hd-title">
+          <h1>Glosa Preventiva Aduanal</h1>
+          <p>CIE Agencia Aduanal — Reporte de Revisión</p>
+        </td>
+        <td class="hd-meta">
+          <div><b>REF:</b> ${escHtml(resultadoActual.referencia)}</div>
+          <div><b>FECHA:</b> ${escHtml(fecha)}</div>
+          <div><b>ID:</b> ${escHtml(resultadoActual.id)}</div>
+        </td>
+      </tr></table>
+    </div>
+
+    <!-- SEMÁFORO -->
+    <div class="sem-band">
+      <div class="sem-dot"><span></span></div>
+      <div class="sem-text">
+        <strong>${semNombres[resultadoActual.semaforo] || ''}</strong>
+        <em>${escHtml(resultadoActual.recomendacion)}</em>
       </div>
+    </div>
 
-      <!-- SEMÁFORO -->
-      <div style="display:flex;align-items:center;gap:14px;padding:12px 18px;border-radius:8px;border-left:6px solid ${color};background:${color}18;margin-bottom:16px">
-        <div style="width:16px;height:16px;border-radius:50%;background:${color};flex-shrink:0"></div>
-        <div>
-          <div style="font-size:15px;font-weight:700;color:${color}">${semNombres[resultadoActual.semaforo] || ''}</div>
-          <div style="font-size:10px;color:#555;margin-top:2px">${resultadoActual.recomendacion}</div>
-        </div>
-      </div>
+    <!-- CONTADORES -->
+    <table class="contadores">
+      <tr>
+        <td class="cnt-c" style="margin-right:8px">
+          <span class="cnt-num">${resultadoActual.total_criticos}</span>
+          <span class="cnt-lbl">Críticos</span>
+        </td>
+        <td width="8"></td>
+        <td class="cnt-a">
+          <span class="cnt-num">${resultadoActual.total_altos}</span>
+          <span class="cnt-lbl">Altos</span>
+        </td>
+        <td width="8"></td>
+        <td class="cnt-m">
+          <span class="cnt-num">${resultadoActual.total_medios}</span>
+          <span class="cnt-lbl">Medios</span>
+        </td>
+        <td width="8"></td>
+        <td class="cnt-b">
+          <span class="cnt-num">${resultadoActual.total_bajos}</span>
+          <span class="cnt-lbl">Bajos</span>
+        </td>
+      </tr>
+    </table>
 
-      <!-- CONTADORES -->
-      <div style="display:flex;gap:10px;margin-bottom:18px">
-        <div style="flex:1;text-align:center;padding:10px;border-radius:8px;border-top:3px solid #CC1F2F;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1)">
-          <div style="font-size:22px;font-weight:700;color:#CC1F2F">${resultadoActual.total_criticos}</div>
-          <div style="font-size:9px;color:#888;text-transform:uppercase">Críticos</div>
-        </div>
-        <div style="flex:1;text-align:center;padding:10px;border-radius:8px;border-top:3px solid #e67e22;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1)">
-          <div style="font-size:22px;font-weight:700;color:#e67e22">${resultadoActual.total_altos}</div>
-          <div style="font-size:9px;color:#888;text-transform:uppercase">Altos</div>
-        </div>
-        <div style="flex:1;text-align:center;padding:10px;border-radius:8px;border-top:3px solid #c49b0a;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1)">
-          <div style="font-size:22px;font-weight:700;color:#c49b0a">${resultadoActual.total_medios}</div>
-          <div style="font-size:9px;color:#888;text-transform:uppercase">Medios</div>
-        </div>
-        <div style="flex:1;text-align:center;padding:10px;border-radius:8px;border-top:3px solid #27ae60;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1)">
-          <div style="font-size:22px;font-weight:700;color:#27ae60">${resultadoActual.total_bajos}</div>
-          <div style="font-size:9px;color:#888;text-transform:uppercase">Bajos</div>
-        </div>
-      </div>
+    <!-- TABLA HALLAZGOS -->
+    <div class="tbl-title">Tabla de Hallazgos</div>
+    <table class="hallazgos-table">
+      <thead>
+        <tr>
+          <th style="width:14%">Campo</th>
+          <th style="width:13%">Valor Pedimento</th>
+          <th style="width:16%">Valor Documento</th>
+          <th style="width:10%">Fuente</th>
+          <th style="width:18%">Fundamento Legal</th>
+          <th style="width:7%;text-align:center">Riesgo</th>
+          <th style="width:22%">Acción Recomendada</th>
+        </tr>
+      </thead>
+      <tbody>${filas}</tbody>
+    </table>
 
-      <!-- TABLA -->
-      <div style="font-size:12px;font-weight:600;color:#1B2B6B;padding:8px 0;border-bottom:2px solid #1B2B6B;margin-bottom:8px">Tabla de Hallazgos</div>
-      <table style="width:100%;border-collapse:collapse;font-size:10px">
-        <thead>
-          <tr style="background:#1B2B6B">
-            <th style="color:#fff;padding:7px 8px;text-align:left;font-size:9px">Campo</th>
-            <th style="color:#fff;padding:7px 8px;text-align:left;font-size:9px">Valor Pedimento</th>
-            <th style="color:#fff;padding:7px 8px;text-align:left;font-size:9px">Valor Documento</th>
-            <th style="color:#fff;padding:7px 8px;text-align:left;font-size:9px">Fuente</th>
-            <th style="color:#fff;padding:7px 8px;text-align:left;font-size:9px">Fundamento</th>
-            <th style="color:#fff;padding:7px 8px;text-align:center;font-size:9px">Riesgo</th>
-            <th style="color:#fff;padding:7px 8px;text-align:left;font-size:9px">Acción</th>
-          </tr>
-        </thead>
-        <tbody>${filas}</tbody>
-      </table>
+    <!-- FOOTER -->
+    <div class="rpt-footer">
+      Generado por <strong style="color:#1B2B6B">CIE GLOSA</strong> — Sistema de Glosa Preventiva Aduanal
+    </div>
+  </div>
 
-      <!-- FOOTER -->
-      <div style="text-align:center;color:#aaa;font-size:9px;margin-top:20px;padding-top:10px;border-top:1px solid #e0e4ef">
-        Generado por <strong style="color:#1B2B6B">CIE GLOSA</strong> — Sistema de Glosa Preventiva Aduanal
-      </div>
-    </div>`;
-
-  // Cargar html2pdf desde CDN y generar PDF real
-  if (!window.html2pdf) {
-    await new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
-      s.onload = resolve;
-      s.onerror = reject;
-      document.head.appendChild(s);
+  <script>
+    // Imprimir automáticamente al cargar (con pequeño delay para que cargue el logo)
+    window.addEventListener('load', function() {
+      setTimeout(function() { window.print(); }, 600);
     });
+  </script>
+</body>
+</html>`;
+
+  // Abrir en nueva ventana y disparar impresión
+  const w = window.open('', '_blank', 'width=1200,height=800');
+  if (!w) {
+    alert('El navegador bloqueó la ventana emergente. Permite las ventanas emergentes para este sitio y vuelve a intentarlo.');
+    return;
   }
-
-  const elemento = document.createElement('div');
-  elemento.innerHTML = contenido;
-  document.body.appendChild(elemento);
-
-  await html2pdf().set({
-    margin: [10, 10, 10, 10],
-    filename: `Glosa_${resultadoActual.referencia}_${resultadoActual.id}.pdf`,
-    image: { type: 'jpeg', quality: 0.95 },
-    html2canvas: { scale: 2, useCORS: true, logging: false },
-    jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
-  }).from(elemento).save();
-
-  document.body.removeChild(elemento);
+  w.document.write(html);
+  w.document.close();
 }
 
 // ===== CONTRIBUCIONES =====
