@@ -270,134 +270,140 @@ function nuevaRevision() {
   mostrarSeccion('nueva');
 }
 
-// ===== EXPORTAR =====
+// ===== EXPORTAR PDF =====
 async function exportarPDF() {
   if (!resultadoActual) return;
 
-  // Cargar logo desde ruta estática
-  let logoHtml = '<div style="font-size:22px;font-weight:700;color:#CC1F2F;letter-spacing:1px">CIE</div>';
+  // Cargar logo como base64
+  let logoSrc = '';
   try {
     const resp = await fetch('/static/img/cie-logo.png');
     if (resp.ok) {
       const blob = await resp.blob();
-      const dataUrl = await new Promise(resolve => {
+      logoSrc = await new Promise(resolve => {
         const reader = new FileReader();
         reader.onload = () => resolve(reader.result);
         reader.readAsDataURL(blob);
       });
-      logoHtml = `<img src="${dataUrl}" style="height:48px;object-fit:contain" alt="CIE">`;
     }
   } catch (_) {}
 
-  const semColors = { verde: '#2ed573', amarillo: '#ffd32a', rojo: '#ff4757', negro: '#a29bfe' };
+  const semColors = { verde: '#2ed573', amarillo: '#f0a500', rojo: '#CC1F2F', negro: '#6c5ce7' };
   const semNombres = { verde: 'PUEDE VALIDAR', amarillo: 'REVISAR', rojo: 'NO VALIDAR', negro: 'ESCALAR' };
-  const color = semColors[resultadoActual.semaforo] || '#fff';
+  const color = semColors[resultadoActual.semaforo] || '#888';
 
-  let html = `<!DOCTYPE html><html lang="es"><head>
-    <meta charset="UTF-8">
-    <title>Glosa Preventiva — ${resultadoActual.referencia}</title>
-    <style>
-      *{box-sizing:border-box;margin:0;padding:0}
-      body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;color:#1a1a2e;background:#f4f6fb}
-      /* HEADER */
-      .rpt-header{background:#1B2B6B;padding:0;display:flex;align-items:stretch;border-bottom:5px solid #CC1F2F}
-      .rpt-logo-box{background:#fff;padding:14px 20px;display:flex;align-items:center;justify-content:center;min-width:140px}
-      .rpt-logo-box img{height:52px;object-fit:contain}
-      .rpt-title-box{padding:14px 24px;color:#fff;flex:1}
-      .rpt-title-box h1{font-size:20px;font-weight:700;letter-spacing:.5px;margin-bottom:2px}
-      .rpt-title-box p{font-size:11px;opacity:.75;margin:0}
-      .rpt-meta-box{background:rgba(0,0,0,.2);padding:14px 20px;color:#fff;font-size:10px;display:flex;flex-direction:column;justify-content:center;gap:4px;min-width:180px;text-align:right}
-      .rpt-meta-box span{opacity:.9}
-      /* BODY */
-      .rpt-body{padding:24px;max-width:1100px;margin:0 auto}
-      /* SEMAFORO BANNER */
-      .sem-banner{display:flex;align-items:center;gap:16px;padding:14px 20px;border-radius:8px;margin-bottom:20px;border-left:6px solid ${color}}
-      .sem-banner.verde{background:#e8fdf0} .sem-banner.amarillo{background:#fffde7} .sem-banner.rojo{background:#fdecea} .sem-banner.negro{background:#f0f0ff}
-      .sem-dot{width:18px;height:18px;border-radius:50%;background:${color};flex-shrink:0}
-      .sem-label{font-size:16px;font-weight:700;color:${color}}
-      .sem-rec{font-size:11px;color:#555;margin-top:2px}
-      /* COUNTERS */
-      .counters{display:flex;gap:12px;margin-bottom:20px}
-      .cnt{flex:1;text-align:center;padding:12px 8px;border-radius:8px;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.08)}
-      .cnt.c{border-top:3px solid #CC1F2F} .cnt.a{border-top:3px solid #e67e22} .cnt.m{border-top:3px solid #d4ac0d} .cnt.b{border-top:3px solid #27ae60}
-      .cnt .num{font-size:24px;font-weight:700;display:block}
-      .cnt .lbl{font-size:10px;color:#777;text-transform:uppercase;letter-spacing:.5px}
-      .cnt.c .num{color:#CC1F2F} .cnt.a .num{color:#e67e22} .cnt.m .num{color:#d4ac0d} .cnt.b .num{color:#27ae60}
-      /* TABLE */
-      .tbl-wrap{background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08)}
-      .tbl-title{padding:12px 16px;font-size:13px;font-weight:600;color:#1B2B6B;border-bottom:2px solid #e8ecf4}
-      table{width:100%;border-collapse:collapse;font-size:11px}
-      thead tr{background:#1B2B6B}
-      th{color:#fff;padding:9px 10px;text-align:left;font-weight:600;font-size:10.5px;letter-spacing:.3px}
-      tbody tr:nth-child(even){background:#f7f9fc}
-      tbody tr:hover{background:#eef2ff}
-      td{padding:8px 10px;border-bottom:1px solid #eef0f5;vertical-align:top;line-height:1.4}
-      .badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:600}
-      .badge.c{background:#fdecea;color:#CC1F2F} .badge.a{background:#fef3e7;color:#e67e22}
-      .badge.m{background:#fffde7;color:#c49b0a} .badge.b{background:#e8fdf0;color:#27ae60}
-      /* FOOTER */
-      .rpt-footer{text-align:center;color:#aaa;font-size:10px;margin-top:24px;padding:12px;border-top:1px solid #e0e4ef}
-      .rpt-footer strong{color:#1B2B6B}
-    </style>
-  </head><body>
-    <div class="rpt-header">
-      <div class="rpt-logo-box">${logoHtml}</div>
-      <div class="rpt-title-box">
-        <h1>Glosa Preventiva Aduanal</h1>
-        <p>Sistema de Revisión Documental — CIE Agencia Aduanal</p>
-      </div>
-      <div class="rpt-meta-box">
-        <span><strong>REF:</strong> ${resultadoActual.referencia}</span>
-        <span><strong>FECHA:</strong> ${resultadoActual.fecha_revision}</span>
-        <span><strong>ID:</strong> ${resultadoActual.id}</span>
-      </div>
-    </div>
-    <div class="rpt-body">
-      <div class="sem-banner ${resultadoActual.semaforo}">
-        <div class="sem-dot"></div>
-        <div>
-          <div class="sem-label">${semNombres[resultadoActual.semaforo]?.toUpperCase()}</div>
-          <div class="sem-rec">${resultadoActual.recomendacion}</div>
-        </div>
-      </div>
-      <div class="counters">
-        <div class="cnt c"><span class="num">${resultadoActual.total_criticos}</span><span class="lbl">Críticos</span></div>
-        <div class="cnt a"><span class="num">${resultadoActual.total_altos}</span><span class="lbl">Altos</span></div>
-        <div class="cnt m"><span class="num">${resultadoActual.total_medios}</span><span class="lbl">Medios</span></div>
-        <div class="cnt b"><span class="num">${resultadoActual.total_bajos}</span><span class="lbl">Bajos</span></div>
-      </div>
-      <div class="tbl-wrap">
-        <div class="tbl-title">Tabla de Hallazgos</div>
-    <table>
-      <thead><tr><th>Campo</th><th>Valor Pedimento</th><th>Valor Documento</th><th>Doc. Fuente</th><th>Fundamento Legal</th><th>Riesgo</th><th>Acción</th></tr></thead>
-      <tbody>`;
-
-  (resultadoActual.hallazgos || []).forEach(h => {
-    const cls = {Crítico:'c',Alto:'a',Medio:'m',Bajo:'b'}[h.riesgo] || '';
-    html += `<tr>
-      <td><strong>${h.campo}</strong></td>
+  // Construir filas de tabla
+  let filas = '';
+  (resultadoActual.hallazgos || []).forEach((h, i) => {
+    const bgColor = { Crítico: '#fff5f5', Alto: '#fff8f0', Medio: '#fffef0', Bajo: '#f0fff4' }[h.riesgo] || '#fff';
+    const riesgoColor = { Crítico: '#CC1F2F', Alto: '#e67e22', Medio: '#c49b0a', Bajo: '#27ae60' }[h.riesgo] || '#888';
+    filas += `<tr style="background:${i%2===0?'#fff':bgColor}">
+      <td style="font-weight:600;color:#1B2B6B">${h.campo}</td>
       <td>${h.valor_pedimento}</td>
       <td>${h.valor_documento_fuente}</td>
-      <td>${h.documento_fuente}</td>
-      <td style="font-size:10px;color:#555">${h.fundamento_legal}</td>
-      <td><span class="badge ${cls}">${h.riesgo}</span></td>
-      <td style="font-size:10px">${h.accion_recomendada}</td>
+      <td style="color:#555">${h.documento_fuente}</td>
+      <td style="font-size:9px;color:#666">${h.fundamento_legal}</td>
+      <td style="text-align:center"><span style="background:${riesgoColor};color:#fff;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700">${h.riesgo}</span></td>
+      <td style="font-size:9px">${h.accion_recomendada}</td>
     </tr>`;
   });
 
-  html += `</tbody></table>
-      </div><!-- tbl-wrap -->
-    </div><!-- rpt-body -->
-    <div class="rpt-footer">Generado por <strong>CIE GLOSA</strong> — Sistema de Glosa Preventiva Aduanal &nbsp;|&nbsp; CIE Agencia Aduanal</div>
-  </body></html>`;
+  const logoTag = logoSrc
+    ? `<img src="${logoSrc}" style="height:44px;object-fit:contain;display:block">`
+    : `<span style="font-size:20px;font-weight:900;color:#CC1F2F">CIE</span>`;
 
-  const blob = new Blob([html], { type: 'text/html' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `Glosa_${resultadoActual.referencia}_${resultadoActual.id}.html`;
-  a.click();
-  URL.revokeObjectURL(url);
+  const contenido = `
+    <div style="font-family:Arial,sans-serif;font-size:11px;color:#1a1a2e;background:#fff">
+      <!-- HEADER -->
+      <div style="background:#1B2B6B;display:flex;align-items:stretch;border-bottom:5px solid #CC1F2F;margin-bottom:20px">
+        <div style="background:#fff;padding:12px 18px;display:flex;align-items:center;min-width:130px">${logoTag}</div>
+        <div style="padding:12px 20px;color:#fff;flex:1">
+          <div style="font-size:17px;font-weight:700;letter-spacing:.5px">Glosa Preventiva Aduanal</div>
+          <div style="font-size:10px;opacity:.75;margin-top:2px">CIE Agencia Aduanal — Reporte de Revisión</div>
+        </div>
+        <div style="background:rgba(0,0,0,.25);padding:12px 18px;color:#fff;font-size:10px;text-align:right;display:flex;flex-direction:column;justify-content:center;gap:3px">
+          <div><b>REF:</b> ${resultadoActual.referencia}</div>
+          <div><b>FECHA:</b> ${resultadoActual.fecha_revision}</div>
+          <div><b>ID:</b> ${resultadoActual.id}</div>
+        </div>
+      </div>
+
+      <!-- SEMÁFORO -->
+      <div style="display:flex;align-items:center;gap:14px;padding:12px 18px;border-radius:8px;border-left:6px solid ${color};background:${color}18;margin-bottom:16px">
+        <div style="width:16px;height:16px;border-radius:50%;background:${color};flex-shrink:0"></div>
+        <div>
+          <div style="font-size:15px;font-weight:700;color:${color}">${semNombres[resultadoActual.semaforo] || ''}</div>
+          <div style="font-size:10px;color:#555;margin-top:2px">${resultadoActual.recomendacion}</div>
+        </div>
+      </div>
+
+      <!-- CONTADORES -->
+      <div style="display:flex;gap:10px;margin-bottom:18px">
+        <div style="flex:1;text-align:center;padding:10px;border-radius:8px;border-top:3px solid #CC1F2F;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1)">
+          <div style="font-size:22px;font-weight:700;color:#CC1F2F">${resultadoActual.total_criticos}</div>
+          <div style="font-size:9px;color:#888;text-transform:uppercase">Críticos</div>
+        </div>
+        <div style="flex:1;text-align:center;padding:10px;border-radius:8px;border-top:3px solid #e67e22;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1)">
+          <div style="font-size:22px;font-weight:700;color:#e67e22">${resultadoActual.total_altos}</div>
+          <div style="font-size:9px;color:#888;text-transform:uppercase">Altos</div>
+        </div>
+        <div style="flex:1;text-align:center;padding:10px;border-radius:8px;border-top:3px solid #c49b0a;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1)">
+          <div style="font-size:22px;font-weight:700;color:#c49b0a">${resultadoActual.total_medios}</div>
+          <div style="font-size:9px;color:#888;text-transform:uppercase">Medios</div>
+        </div>
+        <div style="flex:1;text-align:center;padding:10px;border-radius:8px;border-top:3px solid #27ae60;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1)">
+          <div style="font-size:22px;font-weight:700;color:#27ae60">${resultadoActual.total_bajos}</div>
+          <div style="font-size:9px;color:#888;text-transform:uppercase">Bajos</div>
+        </div>
+      </div>
+
+      <!-- TABLA -->
+      <div style="font-size:12px;font-weight:600;color:#1B2B6B;padding:8px 0;border-bottom:2px solid #1B2B6B;margin-bottom:8px">Tabla de Hallazgos</div>
+      <table style="width:100%;border-collapse:collapse;font-size:10px">
+        <thead>
+          <tr style="background:#1B2B6B">
+            <th style="color:#fff;padding:7px 8px;text-align:left;font-size:9px">Campo</th>
+            <th style="color:#fff;padding:7px 8px;text-align:left;font-size:9px">Valor Pedimento</th>
+            <th style="color:#fff;padding:7px 8px;text-align:left;font-size:9px">Valor Documento</th>
+            <th style="color:#fff;padding:7px 8px;text-align:left;font-size:9px">Fuente</th>
+            <th style="color:#fff;padding:7px 8px;text-align:left;font-size:9px">Fundamento</th>
+            <th style="color:#fff;padding:7px 8px;text-align:center;font-size:9px">Riesgo</th>
+            <th style="color:#fff;padding:7px 8px;text-align:left;font-size:9px">Acción</th>
+          </tr>
+        </thead>
+        <tbody>${filas}</tbody>
+      </table>
+
+      <!-- FOOTER -->
+      <div style="text-align:center;color:#aaa;font-size:9px;margin-top:20px;padding-top:10px;border-top:1px solid #e0e4ef">
+        Generado por <strong style="color:#1B2B6B">CIE GLOSA</strong> — Sistema de Glosa Preventiva Aduanal
+      </div>
+    </div>`;
+
+  // Cargar html2pdf desde CDN y generar PDF real
+  if (!window.html2pdf) {
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+      s.onload = resolve;
+      s.onerror = reject;
+      document.head.appendChild(s);
+    });
+  }
+
+  const elemento = document.createElement('div');
+  elemento.innerHTML = contenido;
+  document.body.appendChild(elemento);
+
+  await html2pdf().set({
+    margin: [10, 10, 10, 10],
+    filename: `Glosa_${resultadoActual.referencia}_${resultadoActual.id}.pdf`,
+    image: { type: 'jpeg', quality: 0.95 },
+    html2canvas: { scale: 2, useCORS: true, logging: false },
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
+  }).from(elemento).save();
+
+  document.body.removeChild(elemento);
 }
 
 // ===== LOADING =====
