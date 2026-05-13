@@ -39,25 +39,37 @@ STATIC_DIR = BASE_DIR / "static"
 
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-
-async def init_db():
-    async with aiosqlite.connect(str(DB_PATH)) as db:
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS revisiones (
-                id TEXT PRIMARY KEY,
-                referencia TEXT,
-                cliente TEXT,
-                fecha_revision TEXT,
-                resultado_json TEXT,
-                estatus TEXT DEFAULT 'completado'
-            )
-        """)
-        await db.commit()
+_HTML_CACHE: str = ""
 
 
 @app.on_event("startup")
 async def startup():
-    await init_db()
+    global _HTML_CACHE
+    # Inicializar base de datos
+    try:
+        async with aiosqlite.connect(str(DB_PATH)) as db:
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS revisiones (
+                    id TEXT PRIMARY KEY,
+                    referencia TEXT,
+                    cliente TEXT,
+                    fecha_revision TEXT,
+                    resultado_json TEXT,
+                    estatus TEXT DEFAULT 'completado'
+                )
+            """)
+            await db.commit()
+    except Exception as e:
+        print(f"DB init warning: {e}")
+
+    # Cachear HTML
+    try:
+        index_path = STATIC_DIR / "index.html"
+        if index_path.exists():
+            async with aiofiles.open(str(index_path), "r", encoding="utf-8") as f:
+                _HTML_CACHE = await f.read()
+    except Exception as e:
+        print(f"HTML cache warning: {e}")
 
 
 @app.get("/health")
@@ -65,23 +77,16 @@ async def health():
     return {"status": "ok"}
 
 
-# Pre-leer el HTML una sola vez al inicio (no en cada request)
-_HTML_CACHE: str = ""
-
-@app.on_event("startup")
-async def cargar_html():
-    global _HTML_CACHE
-    index_path = STATIC_DIR / "index.html"
-    if index_path.exists():
-        async with aiofiles.open(str(index_path), "r", encoding="utf-8") as f:
-            _HTML_CACHE = await f.read()
-
-
 @app.get("/", response_class=HTMLResponse)
 async def root():
     if _HTML_CACHE:
         return HTMLResponse(_HTML_CACHE)
-    return HTMLResponse("<h1>GLOSA - Sistema iniciando...</h1>")
+    # Fallback: leer del disco
+    index_path = STATIC_DIR / "index.html"
+    if index_path.exists():
+        with open(str(index_path), "r", encoding="utf-8") as f:
+            return HTMLResponse(f.read())
+    return HTMLResponse("<h1>GLOSA iniciando...</h1>")
 
 
 @app.post("/api/revision")
@@ -90,9 +95,6 @@ async def crear_revision(
     referencia: Optional[str] = Form(None),
     cliente: Optional[str] = Form(None)
 ):
-    """
-    Recibe los documentos, los procesa con IA y ejecuta las validaciones.
-    """
     if not files:
         raise HTTPException(status_code=400, detail="No se recibieron archivos")
 
@@ -100,7 +102,6 @@ async def crear_revision(
     ref = referencia or f"REV-{revision_id}"
     fecha = datetime.now().strftime("%d/%m/%Y %H:%M")
 
-    # Guardar archivos y procesarlos
     documentos_extraidos = {}
     documentos_cargados = []
     revision_dir = UPLOAD_DIR / revision_id
@@ -117,18 +118,21 @@ async def crear_revision(
         try:
             doc_procesado = process_document(str(file_path), file.filename)
             tipo = doc_procesado["tipo"]
-            documentos_extraidos[tipo] = doc_procesado["datos"]
+            datos = doc_procesado["datos"]
+            # Solo usar si no hay error de API
+            if "error" not in datos:
+                documentos_extraidos[tipo] = datos
+            else:
+                print(f"Extraccion error en {file.filename}: {datos.get('error','')[:100]}")
             documentos_cargados.append(f"{file.filename} ({tipo})")
         except Exception as e:
             documentos_cargados.append(f"{file.filename} (error: {str(e)[:50]})")
 
-    # Ejecutar validaciones
     try:
         hallazgos, semaforo, recomendacion, criticos, altos, medios, bajos = ejecutar_validaciones(documentos_extraidos)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error en validaciones: {str(e)}")
 
-    # Construir resultado
     resultado = ResultadoGlosa(
         id=revision_id,
         referencia=ref,
@@ -144,7 +148,6 @@ async def crear_revision(
         estatus="completado"
     )
 
-    # Guardar en base de datos
     try:
         async with aiosqlite.connect(str(DB_PATH)) as db:
             await db.execute(
@@ -153,14 +156,13 @@ async def crear_revision(
             )
             await db.commit()
     except Exception:
-        pass  # No crítico si falla el guardado
+        pass
 
     return resultado
 
 
 @app.get("/api/revision/{revision_id}")
 async def obtener_revision(revision_id: str):
-    """Obtiene el resultado de una revisión por ID."""
     async with aiosqlite.connect(str(DB_PATH)) as db:
         async with db.execute(
             "SELECT resultado_json FROM revisiones WHERE id = ?",
@@ -174,7 +176,6 @@ async def obtener_revision(revision_id: str):
 
 @app.get("/api/revisiones")
 async def listar_revisiones():
-    """Lista todas las revisiones guardadas."""
     async with aiosqlite.connect(str(DB_PATH)) as db:
         async with db.execute(
             "SELECT id, referencia, cliente, fecha_revision, estatus FROM revisiones ORDER BY rowid DESC LIMIT 50"
