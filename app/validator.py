@@ -22,6 +22,11 @@ def normalizar(valor) -> str:
     return str(valor).strip().upper().replace("  ", " ")
 
 
+def normalizar_rfc(rfc) -> str:
+    """Normaliza RFC eliminando guiones y espacios para comparación."""
+    return re.sub(r'[\s\-]', '', str(rfc or "").strip().upper())
+
+
 def extraer_numero(v) -> Optional[float]:
     """Extrae el primer número de un string, soporta comas de miles y símbolo $."""
     if v is None:
@@ -128,7 +133,13 @@ def normalizar_fecha(fecha: str) -> str:
     # ── Paso 3: identificar año ──
     yyyy = next((n for n in nums if len(n) == 4 and int(n) > 1900), None)
     if not yyyy:
-        return re.sub(r'\D', '', original)
+        # Intentar año de 2 dígitos (ej: 26/Dec/25 → 2025)
+        yy = next((n for n in nums if len(n) == 2 and int(n) <= 99), None)
+        if yy:
+            yyyy = "20" + yy
+            nums = [n for n in nums if n != yy] + [yyyy]
+        else:
+            return re.sub(r'\D', '', original)
 
     rest = [n for n in nums if n != yyyy]
     if not rest:
@@ -182,13 +193,14 @@ def validar_importador(ped: dict, factura: dict, carta: dict) -> List[Hallazgo]:
         if not doc:
             continue
         rfc_doc = normalizar(doc.get("rfc_importador"))
-        if rfc_ped and rfc_doc and rfc_ped != rfc_doc:
+        # Comparar normalizando (sin guiones ni espacios)
+        if rfc_ped and rfc_doc and normalizar_rfc(rfc_ped) != normalizar_rfc(rfc_doc):
             h.append(hacer_hallazgo(
                 "RFC Importador",
                 ped.get("rfc_importador"), doc.get("rfc_importador"), fuente,
                 "Anexo 22 / RGCE 3.1.8 / Art. 76 Ley Aduanera",
-                RiesgoNivel.CRITICO,
-                f"RFC del pedimento ({rfc_ped}) difiere del {fuente} ({rfc_doc}). Corregir antes de validar."
+                RiesgoNivel.MEDIO,
+                f"RFC del pedimento ({rfc_ped}) difiere del {fuente} ({rfc_doc}). Verificar — puede ser diferencia de formato (guiones)."
             ))
 
     # Nombre importador
@@ -573,11 +585,15 @@ def validar_logistica(ped: dict, packing: dict, bl: dict) -> List[Hallazgo]:
 # ─────────────────────────────────────────────
 
 UMC_MAP = {
-    "PZA": ["PCS", "PC", "PIECE", "PIECES", "PZ", "PZA", "UNIT", "UNITS", "6"],
+    "PZA": ["PCS", "PC", "PIECE", "PIECES", "PZ", "PZA", "UNIT", "UNITS",
+            "SHEET", "SHEETS", "HOJA", "HOJAS", "SET", "SETS"],
     "KG":  ["KGS", "KG", "KILO", "KILOS", "KILOGRAM", "KILOGRAMS"],
     "LT":  ["LTR", "LITER", "LITERS", "LT"],
-    "MT":  ["MTR", "METER", "METERS", "MT", "M"],
+    "MT":  ["MTR", "METER", "METERS", "MT", "M", "M2", "M²", "SQM"],
     "PAR": ["PAIR", "PAIRS", "PAR"],
+    "BTO": ["PKGS", "PKG", "PACKAGE", "PACKAGES", "BULTO", "BULTOS",
+            "CTNS", "CTN", "CARTON", "CARTONS", "BOX", "BOXES", "BTO"],
+    "ROL": ["ROLL", "ROLLS", "ROLLO", "ROLLOS"],
 }
 
 PALABRAS_RESUMEN_FACTURA = {
@@ -598,94 +614,142 @@ def es_linea_resumen(descripcion: str) -> bool:
     return len(palabras & PALABRAS_RESUMEN_FACTURA) >= 2 or "DETAILS" in palabras
 
 
-def validar_partidas(ped: dict, factura: dict, packing: dict) -> List[Hallazgo]:
+def _cantidad_total_factura(partidas_fac: list) -> Optional[float]:
+    """Suma todas las cantidades de las líneas de factura (maneja facturas multi-línea por partida)."""
+    total = None
+    for p in partidas_fac:
+        if not isinstance(p, dict):
+            continue
+        c = extraer_numero(p.get("cantidad"))
+        if c is not None:
+            total = (total or 0) + c
+    return total
+
+
+def validar_partidas(ped: dict, factura: dict, packing: dict, carta: dict = None) -> List[Hallazgo]:
     """
-    Compara partidas del pedimento vs factura.
-    Solo compara cuando los conteos son comparables (pedimento ≤ 2× factura).
-    Salta líneas de factura que son resumen ('DETAILS AS PER ATTACHED SHEETS').
+    Compara partidas del pedimento.
+    Prioridad de fuente:
+      - Descripción y UMC: primero Carta 3.1.8, luego Factura Comercial
+      - Cantidad: Factura (sumando TODAS las líneas de la partida)
     """
     h = []
     partidas_ped = ped.get("partidas") or []
     if not partidas_ped or not isinstance(partidas_ped, list):
         return h
 
+    # Partidas de factura — filtrar líneas resumen
     partidas_fac_raw = (factura.get("partidas") or []) if factura else []
-    # Filtrar líneas resumen de factura
     partidas_fac = [p for p in partidas_fac_raw
                     if isinstance(p, dict) and not es_linea_resumen(p.get("descripcion") or "")]
 
+    # Partidas de carta 3.1.8
+    partidas_carta_raw = (carta.get("partidas") or []) if carta else []
+    partidas_carta = [p for p in partidas_carta_raw if isinstance(p, dict)]
+
     partidas_pack = (packing.get("partidas") or []) if packing else []
 
-    n_ped = len(partidas_ped)
-    n_fac = len(partidas_fac)
+    n_ped  = len(partidas_ped)
+    n_fac  = len(partidas_fac)
+    n_carta = len(partidas_carta)
 
-    # Si el pedimento tiene muchas más partidas que la factura, probablemente
-    # son desgloses de un resumen — no comparar descripción/precio 1:1.
-    # Solo comparar si la factura tiene al menos 50% de las partidas del pedimento.
-    comparar_con_factura = n_fac > 0 and n_fac >= n_ped * 0.5
+    # Comparar descripción/UMC si existe fuente con al menos 50% de partidas del pedimento
+    comparar_desc_318   = n_carta > 0 and n_carta >= n_ped * 0.5
+    comparar_desc_fac   = n_fac   > 0 and n_fac   >= n_ped * 0.5
+
+    # Para cantidad: determinar si la factura tiene MÁS líneas que el pedimento
+    # (caso multi-línea — hay que sumar)
+    factura_multilinea = n_fac > n_ped
 
     for i, p_ped in enumerate(partidas_ped):
         if not isinstance(p_ped, dict):
             continue
 
         num_partida = p_ped.get("numero") or str(i + 1)
-        umc_ped = normalizar(p_ped.get("umc") or "")
+        umc_ped  = normalizar(p_ped.get("umc") or "")
         cant_ped = extraer_numero(p_ped.get("cantidad_umc"))
         precio_ped = extraer_numero(p_ped.get("precio_unitario"))
 
-        # ── vs Factura (solo si conteos son comparables) ──
-        if comparar_con_factura:
-            p_fac = partidas_fac[i] if i < len(partidas_fac) else None
-            if p_fac and isinstance(p_fac, dict):
-                desc_ped = normalizar(p_ped.get("descripcion") or "")
-                desc_fac = normalizar(p_fac.get("descripcion") or "")
+        # ── Descripción y UMC: prioridad 318 → Factura ──
+        desc_ped = normalizar(p_ped.get("descripcion") or "")
 
-                # Descripción
-                if desc_ped and desc_fac and not palabras_coinciden(desc_ped, desc_fac, 0.35):
-                    h.append(hacer_hallazgo(
-                        f"Partida {num_partida} — Descripción",
-                        desc_ped[:120], desc_fac[:120],
-                        "Factura Comercial",
-                        "Anexo 22 / RGCE 3.1.8",
-                        RiesgoNivel.ALTO,
-                        f"La descripción de la partida {num_partida} del pedimento difiere de la factura."
-                    ))
+        # Intentar con Carta 3.1.8 primero
+        fuente_desc = None
+        desc_ref    = None
+        umc_ref     = None
+        p_ref       = None
 
-                # UMC
-                umc_fac = normalizar(p_fac.get("unidad") or "")
-                if umc_ped and umc_fac and not mismo_umc(umc_ped, umc_fac):
-                    h.append(hacer_hallazgo(
-                        f"Partida {num_partida} — UMC",
-                        umc_ped, umc_fac,
-                        "Factura Comercial",
-                        "Anexo 22",
-                        RiesgoNivel.ALTO,
-                        f"La unidad de medida (UMC) de la partida {num_partida} difiere de la factura."
-                    ))
+        if comparar_desc_318 and i < len(partidas_carta):
+            p_ref = partidas_carta[i]
+            fuente_desc = "Carta 3.1.8"
+        elif comparar_desc_fac and i < len(partidas_fac):
+            p_ref = partidas_fac[i]
+            fuente_desc = "Factura Comercial"
 
-                # Cantidad
-                cant_fac = extraer_numero(p_fac.get("cantidad"))
-                if cant_ped and cant_fac and not valores_numericos_coinciden(cant_ped, cant_fac, 0.01):
-                    h.append(hacer_hallazgo(
-                        f"Partida {num_partida} — Cantidad UMC",
-                        str(cant_ped), str(cant_fac),
-                        "Factura Comercial",
-                        "Anexo 22",
-                        RiesgoNivel.CRITICO,
-                        f"La cantidad de la partida {num_partida} ({cant_ped}) no coincide con la factura ({cant_fac})."
-                    ))
+        if p_ref and isinstance(p_ref, dict):
+            desc_ref = normalizar(p_ref.get("descripcion") or "")
+            umc_ref  = normalizar(p_ref.get("unidad") or p_ref.get("umc") or "")
 
-                # Precio unitario
-                precio_fac = extraer_numero(p_fac.get("precio_unitario"))
-                if precio_ped and precio_fac and not valores_numericos_coinciden(precio_ped, precio_fac, 0.02):
-                    h.append(hacer_hallazgo(
-                        f"Partida {num_partida} — Precio Unitario",
-                        str(precio_ped), str(precio_fac),
-                        "Factura Comercial",
-                        "Anexo 22 / Art. 64 Ley Aduanera",
-                        RiesgoNivel.CRITICO,
-                        f"El precio unitario de la partida {num_partida} difiere entre pedimento y factura."
-                    ))
+        # Validar descripción
+        if desc_ped and desc_ref and fuente_desc:
+            if not palabras_coinciden(desc_ped, desc_ref, 0.35):
+                h.append(hacer_hallazgo(
+                    f"Partida {num_partida} — Descripción",
+                    desc_ped[:120], desc_ref[:120],
+                    fuente_desc,
+                    "Anexo 22 / RGCE 3.1.8",
+                    RiesgoNivel.ALTO,
+                    f"La descripción de la partida {num_partida} del pedimento difiere de {fuente_desc}."
+                ))
+
+        # Validar UMC
+        if umc_ped and umc_ref and fuente_desc:
+            if not mismo_umc(umc_ped, umc_ref):
+                h.append(hacer_hallazgo(
+                    f"Partida {num_partida} — UMC",
+                    umc_ped, umc_ref,
+                    fuente_desc,
+                    "Anexo 22",
+                    RiesgoNivel.ALTO,
+                    f"La unidad de medida (UMC) de la partida {num_partida} difiere de {fuente_desc}."
+                ))
+
+        # ── Cantidad: sumar TODAS las líneas de factura si hay más líneas que partidas ──
+        if cant_ped and partidas_fac:
+            if factura_multilinea:
+                # Sumar todas las líneas de factura que corresponden a esta partida
+                # (asumimos que las líneas extra son continuación de la misma partida)
+                lineas_partida = partidas_fac[i:] if i < len(partidas_fac) else []
+                cant_fac_total = _cantidad_total_factura(lineas_partida)
+                etiqueta_fuente = f"Factura Comercial (suma {len(lineas_partida)} líneas)"
+            else:
+                p_fac_i = partidas_fac[i] if i < len(partidas_fac) else None
+                cant_fac_total = extraer_numero(p_fac_i.get("cantidad")) if p_fac_i else None
+                etiqueta_fuente = "Factura Comercial"
+
+            if cant_fac_total and not valores_numericos_coinciden(cant_ped, cant_fac_total, 0.01):
+                h.append(hacer_hallazgo(
+                    f"Partida {num_partida} — Cantidad UMC",
+                    str(cant_ped), str(cant_fac_total),
+                    etiqueta_fuente,
+                    "Anexo 22",
+                    RiesgoNivel.CRITICO,
+                    f"La cantidad de la partida {num_partida} ({cant_ped}) no coincide con la factura ({cant_fac_total})."
+                ))
+
+        # ── Precio unitario vs factura ──
+        if comparar_desc_fac and i < len(partidas_fac):
+            p_fac_i = partidas_fac[i]
+            precio_fac = extraer_numero(p_fac_i.get("precio_unitario")) if p_fac_i else None
+            if precio_ped and precio_fac and not valores_numericos_coinciden(precio_ped, precio_fac, 0.02):
+                h.append(hacer_hallazgo(
+                    f"Partida {num_partida} — Precio Unitario",
+                    str(precio_ped), str(precio_fac),
+                    "Factura Comercial",
+                    "Anexo 22 / Art. 64 Ley Aduanera",
+                    RiesgoNivel.CRITICO,
+                    f"El precio unitario de la partida {num_partida} difiere entre pedimento y factura."
+                ))
 
         # ── vs Packing List ──
         if partidas_pack:
@@ -1027,7 +1091,7 @@ def ejecutar_validaciones(documentos: Dict[str, dict]) -> tuple:
     hallazgos.extend(validar_moneda_valores(ped, fac))
     hallazgos.extend(validar_cove(ped, cove))
     hallazgos.extend(validar_logistica(ped, packing, bl))
-    hallazgos.extend(validar_partidas(ped, fac, packing))
+    hallazgos.extend(validar_partidas(ped, fac, packing, carta))
     hallazgos.extend(validar_regla_318(fac, carta))
     hallazgos.extend(validar_incrementables(ped, fac, carta))
     hallazgos.extend(validar_regulaciones_fraccion(ped))         # ← NOMs por fracción
