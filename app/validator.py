@@ -61,6 +61,24 @@ def palabras_coinciden(texto1: str, texto2: str, umbral: float = 0.4) -> bool:
     return coincidencia >= umbral
 
 
+def domicilios_coinciden(dom1: str, dom2: str, umbral: float = 0.3) -> bool:
+    """
+    Compara dos domicilios tolerando extracción parcial.
+    Si un domicilio tiene ≤ 4 palabras (extracción incompleta), verifica que
+    esas palabras estén contenidas en el otro (subconjunto).
+    Si ambos son largos, usa similitud normal por palabras clave.
+    """
+    p1 = set(dom1.split())
+    p2 = set(dom2.split())
+    if not p1 or not p2:
+        return True
+    # Si uno de los dos es muy corto → verificar que sea subconjunto del otro
+    corto, largo = (p1, p2) if len(p1) <= len(p2) else (p2, p1)
+    if len(corto) <= 4:
+        return len(corto & largo) / len(corto) >= 0.7
+    return palabras_coinciden(dom1, dom2, umbral)
+
+
 def hacer_hallazgo(campo, val_ped, val_doc, doc_fuente, fundamento, riesgo, accion) -> Hallazgo:
     return Hallazgo(
         campo=campo,
@@ -219,7 +237,7 @@ def validar_importador(ped: dict, factura: dict, carta: dict) -> List[Hallazgo]:
     # Domicilio importador
     dom_ped = normalizar(ped.get("domicilio_importador"))
     dom_fac = normalizar(factura.get("domicilio_importador")) if factura else ""
-    if dom_ped and dom_fac and not palabras_coinciden(dom_ped, dom_fac, 0.35):
+    if dom_ped and dom_fac and not domicilios_coinciden(dom_ped, dom_fac, 0.35):
         h.append(hacer_hallazgo(
             "Domicilio Importador",
             ped.get("domicilio_importador"), factura.get("domicilio_importador"),
@@ -258,7 +276,7 @@ def validar_proveedor(ped: dict, factura: dict, carta: dict) -> List[Hallazgo]:
     # Domicilio proveedor
     dom_ped = normalizar(ped.get("domicilio_proveedor"))
     dom_doc = normalizar(doc.get("domicilio_proveedor"))
-    if dom_ped and dom_doc and not palabras_coinciden(dom_ped, dom_doc, 0.3):
+    if dom_ped and dom_doc and not domicilios_coinciden(dom_ped, dom_doc, 0.3):
         h.append(hacer_hallazgo(
             "Domicilio Proveedor",
             ped.get("domicilio_proveedor"), doc.get("domicilio_proveedor"), fuente,
