@@ -362,37 +362,88 @@ def validar_incoterm(ped: dict, factura: dict, carta: dict) -> List[Hallazgo]:
 # BLOQUE D — MONEDA, VALORES E INCREMENTABLES
 # ─────────────────────────────────────────────
 
-def validar_moneda_valores(ped: dict, factura: dict) -> List[Hallazgo]:
+def validar_moneda_valores(ped: dict, factura: dict, carta: dict = None) -> List[Hallazgo]:
     h = []
-    if not factura:
+    if not factura and not carta:
         return h
 
-    # Moneda
+    doc_principal = factura or carta
+    fuente_principal = "Factura Comercial" if factura else "Carta 3.1.8"
+
+    # Moneda — buscar en factura, luego en carta 318
     mon_ped = normalizar(ped.get("moneda"))
-    mon_fac = normalizar(factura.get("moneda"))
-    if mon_ped and mon_fac and mon_ped != mon_fac:
+    mon_doc = normalizar(doc_principal.get("moneda"))
+    if mon_ped and mon_doc and mon_ped != mon_doc:
         h.append(hacer_hallazgo(
             "Moneda",
-            ped.get("moneda"), factura.get("moneda"),
-            "Factura Comercial",
+            ped.get("moneda"), doc_principal.get("moneda"),
+            fuente_principal,
             "Anexo 22 / Art. 64 Ley Aduanera",
             RiesgoNivel.CRITICO,
             "La moneda del pedimento no coincide con la factura."
         ))
 
-    # Val. Mon. Fact. vs subtotal factura (sin cargos adicionales)
+    # Val. Mon. Fact. vs factura/318
+    # Un pedimento puede ser SUBDIVISIÓN de una factura (val_ped < val_fac es válido).
+    # Solo alertar si val_ped > val_fac (declara más de lo que dice la factura).
     val_mon_ped = extraer_numero(ped.get("valor_moneda_factura"))
-    subtotal_fac = extraer_numero(factura.get("subtotal") or factura.get("valor_total"))
+    subtotal_fac = extraer_numero(
+        (factura or {}).get("subtotal") or (factura or {}).get("valor_total") or
+        (carta or {}).get("valor_total") or (carta or {}).get("valor")
+    ) if factura or carta else None
+
     if val_mon_ped and subtotal_fac:
-        if not valores_numericos_coinciden(val_mon_ped, subtotal_fac, tolerancia=0.02):
+        # Tolerancia ampliada para subdivisiones: si ped ≤ factura + 2% → OK
+        if val_mon_ped > subtotal_fac * 1.02:
             h.append(hacer_hallazgo(
                 "Valor Moneda Factura (Val. Mon. Fact.)",
-                ped.get("valor_moneda_factura"), factura.get("subtotal") or factura.get("valor_total"),
-                "Factura Comercial",
+                ped.get("valor_moneda_factura"),
+                (factura or carta or {}).get("subtotal") or (factura or carta or {}).get("valor_total"),
+                fuente_principal,
                 "Anexo 22 / Art. 64-66 Ley Aduanera",
                 RiesgoNivel.CRITICO,
-                "El Val. Mon. Fact. del pedimento no coincide con el valor de la factura. Recalcular."
+                "El Val. Mon. Fact. del pedimento es mayor al valor de la factura. Verificar."
             ))
+        elif not valores_numericos_coinciden(val_mon_ped, subtotal_fac, tolerancia=0.02):
+            # Diferencia menor → puede ser subdivisión, reportar como Medio
+            h.append(hacer_hallazgo(
+                "Valor Moneda Factura (Val. Mon. Fact.)",
+                ped.get("valor_moneda_factura"),
+                (factura or carta or {}).get("subtotal") or (factura or carta or {}).get("valor_total"),
+                fuente_principal,
+                "Anexo 22 / Art. 64-66 Ley Aduanera",
+                RiesgoNivel.MEDIO,
+                "El Val. Mon. Fact. difiere de la factura. Si la factura cubre varios pedimentos, es correcto."
+            ))
+
+    # Verificar seguros y fletes declarados en pedimento vs carta 318
+    if carta:
+        flete_ped = extraer_numero(ped.get("incrementables_flete")) or 0
+        seguro_ped = extraer_numero(ped.get("incrementables_seguro")) or 0
+        flete_318 = extraer_numero(carta.get("flete")) or 0
+        seguro_318 = extraer_numero(carta.get("seguro")) or 0
+
+        if flete_318 > 0 and flete_ped > 0:
+            if not valores_numericos_coinciden(flete_ped, flete_318, tolerancia=0.03):
+                h.append(hacer_hallazgo(
+                    "Incrementable Flete vs Carta 3.1.8",
+                    str(flete_ped), str(flete_318),
+                    "Carta 3.1.8",
+                    "Art. 65-66 Ley Aduanera / RGCE 3.1.8",
+                    RiesgoNivel.ALTO,
+                    f"El flete declarado en pedimento ({flete_ped}) difiere del indicado en la Carta 3.1.8 ({flete_318})."
+                ))
+
+        if seguro_318 > 0 and seguro_ped > 0:
+            if not valores_numericos_coinciden(seguro_ped, seguro_318, tolerancia=0.03):
+                h.append(hacer_hallazgo(
+                    "Incrementable Seguro vs Carta 3.1.8",
+                    str(seguro_ped), str(seguro_318),
+                    "Carta 3.1.8",
+                    "Art. 65-66 Ley Aduanera / RGCE 3.1.8",
+                    RiesgoNivel.ALTO,
+                    f"El seguro declarado en pedimento ({seguro_ped}) difiere del indicado en la Carta 3.1.8 ({seguro_318})."
+                ))
 
     # Recálculo del valor en aduana
     h.extend(_validar_valor_aduana(ped, factura))
@@ -533,8 +584,9 @@ def validar_cove(ped: dict, cove: dict) -> List[Hallazgo]:
 def validar_logistica(ped: dict, packing: dict, bl: dict) -> List[Hallazgo]:
     h = []
 
-    # Número BL
+    # Número BL — validar vs BL y vs Packing List
     bl_ped = normalizar(ped.get("numero_bl"))
+
     bl_doc = normalizar(bl.get("numero_bl")) if bl else ""
     if bl_ped and bl_doc and bl_ped != bl_doc:
         h.append(hacer_hallazgo(
@@ -544,6 +596,18 @@ def validar_logistica(ped: dict, packing: dict, bl: dict) -> List[Hallazgo]:
             "Anexo 22 / Art. 36-A Ley Aduanera",
             RiesgoNivel.CRITICO,
             "El número de BL del pedimento no coincide con el documento de transporte."
+        ))
+
+    # Número BL en Packing List
+    bl_pack = normalizar(packing.get("numero_bl") or packing.get("bl") or "") if packing else ""
+    if bl_ped and bl_pack and bl_ped != bl_pack:
+        h.append(hacer_hallazgo(
+            "Número BL / Guía vs Packing List",
+            ped.get("numero_bl"), bl_pack,
+            "Packing List",
+            "Anexo 22 / Art. 36-A Ley Aduanera",
+            RiesgoNivel.ALTO,
+            "El número de BL del pedimento no coincide con el Packing List."
         ))
 
     # Peso bruto
@@ -1088,7 +1152,7 @@ def ejecutar_validaciones(documentos: Dict[str, dict]) -> tuple:
     hallazgos.extend(validar_importador(ped, fac, carta))
     hallazgos.extend(validar_proveedor(ped, fac, carta))
     hallazgos.extend(validar_incoterm(ped, fac, carta))
-    hallazgos.extend(validar_moneda_valores(ped, fac))
+    hallazgos.extend(validar_moneda_valores(ped, fac, carta))
     hallazgos.extend(validar_cove(ped, cove))
     hallazgos.extend(validar_logistica(ped, packing, bl))
     hallazgos.extend(validar_partidas(ped, fac, packing, carta))
