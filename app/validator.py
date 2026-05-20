@@ -6,6 +6,7 @@ Versión 2 — incluye:
   - Validación 3.1.8 completa (13 campos del artículo)
 """
 import re
+import unicodedata
 from typing import Dict, List, Optional
 from app.models import Hallazgo, RiesgoNivel, SemaforoColor
 from app.catalogos import obtener_regulaciones
@@ -16,10 +17,18 @@ from app.contribuciones import calcular_contribuciones
 # UTILIDADES
 # ─────────────────────────────────────────────
 
+def _quitar_acentos(texto: str) -> str:
+    """Convierte Á→A, É→E, Í→I, Ó→O, Ú→U, Ü→U, Ñ→N etc."""
+    return ''.join(
+        c for c in unicodedata.normalize('NFD', texto)
+        if unicodedata.category(c) != 'Mn'
+    )
+
+
 def normalizar(valor) -> str:
     if valor is None:
         return ""
-    return str(valor).strip().upper().replace("  ", " ")
+    return _quitar_acentos(str(valor).strip().upper()).replace("  ", " ")
 
 
 def normalizar_rfc(rfc) -> str:
@@ -47,12 +56,18 @@ def valores_numericos_coinciden(v1, v2, tolerancia=0.02) -> bool:
     return dif <= tolerancia
 
 
+def _limpiar_token(t: str) -> str:
+    """Elimina puntuación de un token individual: S.A. → SA, COMPLEMENTOS, → COMPLEMENTOS."""
+    return re.sub(r'[^A-Z0-9]', '', t)
+
+
 def palabras_coinciden(texto1: str, texto2: str, umbral: float = 0.4) -> bool:
-    """Compara dos strings por similitud de palabras clave."""
-    p1 = set(normalizar(texto1).split())
-    p2 = set(normalizar(texto2).split())
-    # Filtrar palabras cortas o comunes
-    stop = {"DE", "LA", "EL", "LOS", "LAS", "SA", "CV", "S.A.", "S.A", "AND", "THE", "OF"}
+    """Compara dos strings por similitud de palabras clave ignorando acentos y puntuación."""
+    # normalizar() ya quita acentos; aquí además limpiamos puntuación de cada token
+    p1 = {_limpiar_token(w) for w in normalizar(texto1).split()}
+    p2 = {_limpiar_token(w) for w in normalizar(texto2).split()}
+    # Filtrar tokens vacíos y palabras comunes sin valor discriminante
+    stop = {"DE", "LA", "EL", "LOS", "LAS", "SA", "CV", "AND", "THE", "OF", "Y", ""}
     p1 = p1 - stop
     p2 = p2 - stop
     if not p1 or not p2:
