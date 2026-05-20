@@ -150,7 +150,7 @@ PROMPTS_JSON = {
   "incrementables_otros": "Otros incrementables declarados",
   "tipo_cambio": "Tipo de cambio aplicado",
   "numero_cove": "Número de COVE declarado",
-  "numero_bl": "Número de BL, guía o documento de transporte",
+  "numero_bl": "Número de BL, guía aérea, AWB o documento de transporte (campo 'NO. GUIA/ORDEN EMBARQUE/ID' en el pedimento)",
   "peso_bruto": "Peso bruto total declarado (solo número)",
   "bultos": "Total de bultos declarados (solo número)",
   "partidas": [
@@ -244,6 +244,7 @@ PROMPTS_JSON = {
 }""",
 
     TipoDocumento.PACKING_LIST: """{
+  "numero_bl": "Número de B/L, guía aérea o AWB referenciado en este documento (null si no aparece)",
   "peso_bruto_total": "Peso bruto total (solo número sin unidad o con unidad)",
   "peso_neto_total": "Peso neto total si aparece",
   "total_bultos": "Total de bultos, cajas, pallets (solo número)",
