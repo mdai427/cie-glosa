@@ -299,6 +299,7 @@ async def crear_revision(
 
     documentos_extraidos = {}
     documentos_cargados = []
+    tipos_detectados = {}
     revision_dir = UPLOAD_DIR / revision_id
     revision_dir.mkdir(exist_ok=True)
 
@@ -323,13 +324,16 @@ async def crear_revision(
             doc_procesado = process_document(str(file_path), nombre_seguro)
             tipo = doc_procesado["tipo"]
             datos = doc_procesado["datos"]
+            tipos_detectados[nombre_seguro] = tipo
             if "error" not in datos:
                 documentos_extraidos[tipo] = datos
+                logger.info(f"Documento procesado: {nombre_seguro} → {tipo}")
             else:
                 logger.error(f"Extraccion error en {nombre_seguro}: {datos.get('error','')[:200]}")
             documentos_cargados.append(f"{nombre_seguro} ({tipo})")
         except Exception as e:
             logger.error(f"Error procesando {nombre_seguro}: {e}")
+            tipos_detectados[nombre_seguro] = "error"
             documentos_cargados.append(f"{nombre_seguro} (error: {str(e)[:50]})")
 
     try:
@@ -343,6 +347,7 @@ async def crear_revision(
         referencia=ref,
         fecha_revision=fecha,
         documentos_cargados=documentos_cargados,
+        tipos_detectados=tipos_detectados,
         hallazgos=hallazgos,
         semaforo=semaforo,
         recomendacion=recomendacion,

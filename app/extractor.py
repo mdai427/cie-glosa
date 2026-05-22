@@ -501,6 +501,46 @@ def extract_with_claude_vision(images: list[dict], doc_type: TipoDocumento) -> d
 
 
 # ─────────────────────────────────────────────
+# IDENTIFICACIÓN DE TIPO CON VISIÓN
+# ─────────────────────────────────────────────
+def _identificar_tipo_con_vision(images: list, filename: str) -> TipoDocumento:
+    """
+    Cuando no se puede identificar el tipo por texto/nombre, usa Claude Vision
+    para ver el documento y determinar qué tipo es.
+    """
+    client = get_claude_client()
+    content = [{"type": "text", "text": (
+        "Mira este documento de comercio exterior y responde SOLO con una de estas palabras exactas:\n"
+        "pedimento_borrador / factura_comercial / carta_318 / cove / packing_list / bl / desconocido\n\n"
+        "- pedimento_borrador: documento aduanal mexicano con clave de pedimento, aduana, régimen\n"
+        "- factura_comercial: invoice/factura con precio, vendedor, comprador\n"
+        "- carta_318: carta o checklist de regla 3.1.8\n"
+        "- cove: comprobante de valor electrónico\n"
+        "- packing_list: lista de empaque con pesos y bultos\n"
+        "- bl: Bill of Lading, guía aérea o AWB con shipper/consignee\n"
+        "- desconocido: cualquier otro\n\n"
+        "Responde SOLO la palabra, sin explicación."
+    )}]
+    for img in images[:2]:
+        content.append({"type": "image", "source": {"type": "base64", "media_type": img["media_type"], "data": img["data"]}})
+
+    try:
+        msg = get_claude_client().messages.create(
+            model="claude-sonnet-4-6", max_tokens=20,
+            system="Responde solo la palabra del tipo de documento.",
+            messages=[{"role": "user", "content": content}]
+        )
+        tipo_str = msg.content[0].text.strip().lower()
+        for t in TipoDocumento:
+            if t.value == tipo_str:
+                return t
+    except Exception:
+        pass
+    # Fallback: intentar por nombre de archivo
+    return identify_document_type("", filename)
+
+
+# ─────────────────────────────────────────────
 # PROCESO PRINCIPAL — ESTRATEGIA DUAL
 # ─────────────────────────────────────────────
 def process_document(file_path: str, filename: str) -> dict:
@@ -560,9 +600,9 @@ def process_document(file_path: str, filename: str) -> dict:
             # PDF escaneado o con poco texto → Claude Vision
             images = pdf_to_images_base64(file_path, max_pages=4)
             if images:
-                # Re-identificar tipo con visión si no se pudo por texto
+                # Si tipo es DESCONOCIDO, pedir a Claude Vision que identifique el tipo
                 if doc_type == TipoDocumento.DESCONOCIDO:
-                    doc_type = identify_document_type("", filename)
+                    doc_type = _identificar_tipo_con_vision(images, filename)
                 campos = extract_with_claude_vision(images, doc_type)
                 ocr_method = "vision"
             else:

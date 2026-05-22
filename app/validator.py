@@ -640,27 +640,47 @@ def validar_logistica(ped: dict, packing: dict, bl: dict) -> List[Hallazgo]:
     bl_ped = normalizar_ref(ped.get("numero_bl"))
 
     bl_doc = normalizar_ref(bl.get("numero_bl")) if bl else ""
-    if bl_ped and bl_doc and bl_ped != bl_doc:
-        h.append(hacer_hallazgo(
-            "Número BL / Guía",
-            ped.get("numero_bl"), bl.get("numero_bl"),
-            "Bill of Lading",
-            "Anexo 22 / Art. 36-A Ley Aduanera",
-            RiesgoNivel.CRITICO,
-            "El número de BL del pedimento no coincide con el documento de transporte."
-        ))
-
-    # Número BL en Packing List — comparación estricta
     bl_pack = normalizar_ref(packing.get("numero_bl") or packing.get("bl") or "") if packing else ""
-    if bl_ped and bl_pack and bl_ped != bl_pack:
-        h.append(hacer_hallazgo(
-            "Número BL / Guía vs Packing List",
-            ped.get("numero_bl"), bl_pack,
-            "Packing List",
-            "Anexo 22 / Art. 36-A Ley Aduanera",
-            RiesgoNivel.ALTO,
-            "El número de BL del pedimento no coincide con el Packing List."
-        ))
+
+    if bl_ped:
+        # Tenemos BL en pedimento — buscar en cualquier fuente
+        comparado = False
+
+        if bl_doc:
+            comparado = True
+            if bl_ped != bl_doc:
+                h.append(hacer_hallazgo(
+                    "Número BL / Guía",
+                    ped.get("numero_bl"), bl.get("numero_bl"),
+                    "Bill of Lading",
+                    "Anexo 22 / Art. 36-A Ley Aduanera",
+                    RiesgoNivel.CRITICO,
+                    "El número de BL del pedimento no coincide con el documento de transporte."
+                ))
+
+        if bl_pack:
+            comparado = True
+            if bl_ped != bl_pack:
+                h.append(hacer_hallazgo(
+                    "Número BL / Guía vs Packing List",
+                    ped.get("numero_bl"), packing.get("numero_bl") or packing.get("bl"),
+                    "Packing List",
+                    "Anexo 22 / Art. 36-A Ley Aduanera",
+                    RiesgoNivel.ALTO,
+                    "El número de BL del pedimento no coincide con el Packing List."
+                ))
+
+        if not comparado:
+            # Pedimento declara un BL pero no se cargó documento de transporte
+            h.append(hacer_hallazgo(
+                "Número BL / Guía — Sin documento de transporte",
+                ped.get("numero_bl"), "No cargado",
+                "Bill of Lading / Packing List",
+                "Anexo 22 / Art. 36-A Ley Aduanera",
+                RiesgoNivel.ALTO,
+                "El pedimento declara un número de BL/Guía pero no se cargó el Bill of Lading "
+                "ni el Packing List para verificarlo. Cargar el BL o Packing List para validar."
+            ))
 
     # Peso bruto
     peso_ped = extraer_numero(ped.get("peso_bruto"))
