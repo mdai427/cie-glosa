@@ -358,6 +358,24 @@ tbody tr:last-child td { border-bottom: none; }
 .sin-hallazgos { text-align: center; padding: 48px; color: var(--gris-texto); }
 .sin-hallazgos span { font-size: 44px; display: block; margin-bottom: 10px; }
 
+/* ===== CAMPOS CORRECTOS ===== */
+.correctos-titulo { color: #1a7a3c; }
+.correctos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+.correcto-item {
+  background: #f0faf4;
+  border: 1px solid #b7dfc6;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  color: #1a7a3c;
+  font-weight: 500;
+}
+
 /* ===== HISTORIAL ===== */
 .historial-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .historial-table th {

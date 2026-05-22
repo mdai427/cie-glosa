@@ -468,33 +468,51 @@ def validar_moneda_valores(ped: dict, factura: dict, carta: dict = None) -> List
                 "El Val. Mon. Fact. difiere de la factura. Si la factura cubre varios pedimentos, es correcto."
             ))
 
-    # Verificar seguros y fletes declarados en pedimento vs carta 318
+    # Verificar seguros y fletes: pedimento en MXN, Carta 3.1.8 puede estar en USD
+    # Se convierte la Carta usando el TC del pedimento (DOF) antes de comparar
     if carta:
-        flete_ped = extraer_numero(ped.get("incrementables_flete")) or 0
+        tc = extraer_numero(ped.get("tipo_cambio")) or 1.0
+        moneda_carta = normalizar(carta.get("moneda") or "")
+        moneda_ped   = normalizar(ped.get("moneda") or "USD")
+
+        flete_ped  = extraer_numero(ped.get("incrementables_flete"))  or 0
         seguro_ped = extraer_numero(ped.get("incrementables_seguro")) or 0
-        flete_318 = extraer_numero(carta.get("flete")) or 0
+        flete_318  = extraer_numero(carta.get("flete"))  or 0
         seguro_318 = extraer_numero(carta.get("seguro")) or 0
 
+        # Si la carta está en USD (o misma moneda que pedimento) y el pedimento en MXN → convertir
+        carta_en_usd = moneda_carta in ("USD", "US", "") or moneda_carta == moneda_ped
+        if carta_en_usd and tc > 1:
+            flete_318_mxn  = flete_318  * tc
+            seguro_318_mxn = seguro_318 * tc
+        else:
+            flete_318_mxn  = flete_318
+            seguro_318_mxn = seguro_318
+
         if flete_318 > 0 and flete_ped > 0:
-            if not valores_numericos_coinciden(flete_ped, flete_318, tolerancia=0.03):
+            if not valores_numericos_coinciden(flete_ped, flete_318_mxn, tolerancia=0.05):
                 h.append(hacer_hallazgo(
                     "Incrementable Flete vs Carta 3.1.8",
-                    str(flete_ped), str(flete_318),
+                    f"{flete_ped:.2f} MXN",
+                    f"{flete_318:.2f} USD × {tc:.4f} = {flete_318_mxn:.2f} MXN",
                     "Carta 3.1.8",
                     "Art. 65-66 Ley Aduanera / RGCE 3.1.8",
                     RiesgoNivel.ALTO,
-                    f"El flete declarado en pedimento ({flete_ped}) difiere del indicado en la Carta 3.1.8 ({flete_318})."
+                    f"El flete del pedimento ({flete_ped:.2f} MXN) difiere de la Carta 3.1.8 "
+                    f"({flete_318:.2f} USD × TC {tc:.4f} = {flete_318_mxn:.2f} MXN)."
                 ))
 
         if seguro_318 > 0 and seguro_ped > 0:
-            if not valores_numericos_coinciden(seguro_ped, seguro_318, tolerancia=0.03):
+            if not valores_numericos_coinciden(seguro_ped, seguro_318_mxn, tolerancia=0.05):
                 h.append(hacer_hallazgo(
                     "Incrementable Seguro vs Carta 3.1.8",
-                    str(seguro_ped), str(seguro_318),
+                    f"{seguro_ped:.2f} MXN",
+                    f"{seguro_318:.2f} USD × {tc:.4f} = {seguro_318_mxn:.2f} MXN",
                     "Carta 3.1.8",
                     "Art. 65-66 Ley Aduanera / RGCE 3.1.8",
                     RiesgoNivel.ALTO,
-                    f"El seguro declarado en pedimento ({seguro_ped}) difiere del indicado en la Carta 3.1.8 ({seguro_318})."
+                    f"El seguro del pedimento ({seguro_ped:.2f} MXN) difiere de la Carta 3.1.8 "
+                    f"({seguro_318:.2f} USD × TC {tc:.4f} = {seguro_318_mxn:.2f} MXN)."
                 ))
 
     # Recálculo del valor en aduana
@@ -721,15 +739,18 @@ def validar_logistica(ped: dict, packing: dict, bl: dict) -> List[Hallazgo]:
 # ─────────────────────────────────────────────
 
 UMC_MAP = {
-    "PZA": ["PCS", "PC", "PIECE", "PIECES", "PZ", "PZA", "UNIT", "UNITS",
-            "SHEET", "SHEETS", "HOJA", "HOJAS", "SET", "SETS"],
-    "KG":  ["KGS", "KG", "KILO", "KILOS", "KILOGRAM", "KILOGRAMS"],
-    "LT":  ["LTR", "LITER", "LITERS", "LT"],
-    "MT":  ["MTR", "METER", "METERS", "MT", "M", "M2", "M²", "SQM"],
-    "PAR": ["PAIR", "PAIRS", "PAR"],
+    "PZA": ["PCS", "PC", "PIECE", "PIECES", "PZ", "PZA", "UNIT", "UNITS", "UN", "UND",
+            "SHEET", "SHEETS", "HOJA", "HOJAS", "SET", "SETS", "EA", "EACH", "NO", "NOS"],
+    "KG":  ["KGS", "KG", "KILO", "KILOS", "KILOGRAM", "KILOGRAMS", "KGM"],
+    "LT":  ["LTR", "LITER", "LITERS", "LT", "L", "LITRE", "LITRES"],
+    "MT":  ["MTR", "METER", "METERS", "MT", "M", "M2", "M²", "SQM", "LM", "ML",
+            "MTQ", "METRO", "METROS", "METRE", "METRES"],
+    "PAR": ["PAIR", "PAIRS", "PAR", "PR"],
     "BTO": ["PKGS", "PKG", "PACKAGE", "PACKAGES", "BULTO", "BULTOS",
-            "CTNS", "CTN", "CARTON", "CARTONS", "BOX", "BOXES", "BTO"],
-    "ROL": ["ROLL", "ROLLS", "ROLLO", "ROLLOS"],
+            "CTNS", "CTN", "CARTON", "CARTONS", "BOX", "BOXES", "BTO", "CRT", "CRTN"],
+    "ROL": ["ROLL", "ROLLS", "ROLLO", "ROLLOS", "RL"],
+    "GR":  ["GR", "GRS", "GRAM", "GRAMS", "GRAMO", "GRAMOS", "G"],
+    "TON": ["TON", "TONS", "TONNE", "TONNES", "TNE", "MT_TON", "TONELADA", "TONELADAS"],
 }
 
 PALABRAS_RESUMEN_FACTURA = {
@@ -1218,7 +1239,7 @@ def ejecutar_validaciones(documentos: Dict[str, dict]) -> tuple:
     bl     = documentos.get("bl")
 
     if not ped:
-        return [], SemaforoColor.AMARILLO, "No se cargó pedimento/proforma. Sin datos para comparar.", 0, 0, 0, 0
+        return [], SemaforoColor.AMARILLO, "No se cargó pedimento/proforma. Sin datos para comparar.", 0, 0, 0, 0, []
 
     hallazgos = []
     hallazgos.extend(validar_importador(ped, fac, carta))
@@ -1230,8 +1251,53 @@ def ejecutar_validaciones(documentos: Dict[str, dict]) -> tuple:
     hallazgos.extend(validar_partidas(ped, fac, packing, carta))
     hallazgos.extend(validar_regla_318(fac, carta))
     hallazgos.extend(validar_incrementables(ped, fac, carta))
-    hallazgos.extend(validar_regulaciones_fraccion(ped))         # ← NOMs por fracción
-    hallazgos.extend(calcular_contribuciones_estimadas(ped))     # ← IGI/IVA/DTA estimados
+    hallazgos.extend(validar_regulaciones_fraccion(ped))
+    hallazgos.extend(calcular_contribuciones_estimadas(ped))
+
+    campos_con_hallazgo = {h.campo for h in hallazgos}
+
+    # Campos que se verificaron y NO tienen discrepancias
+    CAMPOS_VERIFICABLES = [
+        ("RFC Importador",          fac or carta),
+        ("Nombre Importador",       fac or carta),
+        ("Domicilio Importador",    fac or carta),
+        ("Nombre Proveedor",        fac or carta),
+        ("ID Fiscal Proveedor",     fac or carta),
+        ("Incoterm",                fac or carta),
+        ("Moneda",                  fac or carta),
+        ("Número de Factura",       fac or carta),
+        ("Fecha de Factura",        fac or carta),
+        ("Número de COVE",          cove),
+        ("Número BL / Guía",        bl or packing),
+        ("Peso Bruto",              packing or bl),
+        ("Total Bultos",            packing or bl),
+        ("Incrementable Flete",     carta),
+        ("Incrementable Seguro",    carta),
+        ("Val. Mon. Fact.",         fac),
+    ]
+
+    campos_correctos = []
+    for nombre, doc_requerido in CAMPOS_VERIFICABLES:
+        if doc_requerido is None:
+            continue  # no se cargó el documento fuente, no aplica
+        # Si ningún hallazgo empieza con este nombre → campo correcto
+        tiene_problema = any(
+            h.campo == nombre or h.campo.startswith(nombre)
+            for h in hallazgos
+        )
+        if not tiene_problema:
+            campos_correctos.append(nombre)
+
+    # Agregar partidas correctas
+    partidas_ped = ped.get("partidas") or []
+    for i, p in enumerate(partidas_ped):
+        if not isinstance(p, dict):
+            continue
+        num = p.get("numero") or str(i + 1)
+        prefix = f"Partida {num}"
+        tiene_problema = any(h.campo.startswith(prefix) for h in hallazgos)
+        if not tiene_problema and (fac or carta):
+            campos_correctos.append(f"Partida {num} — Sin discrepancias")
 
     color, rec, criticos, altos, medios, bajos = calcular_semaforo(hallazgos)
-    return hallazgos, color, rec, criticos, altos, medios, bajos
+    return hallazgos, color, rec, criticos, altos, medios, bajos, campos_correctos

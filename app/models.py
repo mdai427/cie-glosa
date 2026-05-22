@@ -50,6 +50,7 @@ class ResultadoGlosa(BaseModel):
     fecha_revision: str
     documentos_cargados: List[str] = []
     tipos_detectados: Dict[str, str] = {}  # archivo → tipo detectado
+    campos_correctos: List[str] = []       # campos validados sin discrepancias
     hallazgos: List[Hallazgo] = []
     semaforo: SemaforoColor = SemaforoColor.VERDE
     recomendacion: str = ""

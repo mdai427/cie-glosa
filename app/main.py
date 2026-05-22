@@ -337,7 +337,7 @@ async def crear_revision(
             documentos_cargados.append(f"{nombre_seguro} (error: {str(e)[:50]})")
 
     try:
-        hallazgos, semaforo, recomendacion, criticos, altos, medios, bajos = ejecutar_validaciones(documentos_extraidos)
+        hallazgos, semaforo, recomendacion, criticos, altos, medios, bajos, campos_correctos = ejecutar_validaciones(documentos_extraidos)
     except Exception as e:
         logger.error(f"Error en validaciones revision {revision_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Error en validaciones: {str(e)}")
@@ -348,6 +348,7 @@ async def crear_revision(
         fecha_revision=fecha,
         documentos_cargados=documentos_cargados,
         tipos_detectados=tipos_detectados,
+        campos_correctos=campos_correctos,
         hallazgos=hallazgos,
         semaforo=semaforo,
         recomendacion=recomendacion,

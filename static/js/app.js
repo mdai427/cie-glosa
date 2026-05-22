@@ -401,6 +401,19 @@ function mostrarResultado(data) {
     `<div class="doc-tag">📄 ${d}</div>`
   ).join('');
 
+  // Campos correctos
+  const correctos = data.campos_correctos || [];
+  const cardCorrectos = document.getElementById('card-correctos');
+  const correctosDiv = document.getElementById('campos-correctos');
+  if (correctos.length > 0) {
+    cardCorrectos.style.display = '';
+    correctosDiv.innerHTML = correctos.map(c =>
+      `<div class="correcto-item">✅ ${c}</div>`
+    ).join('');
+  } else {
+    cardCorrectos.style.display = 'none';
+  }
+
   // Renderizar tabla y contribuciones
   renderizarTabla(todosHallazgos);
   renderizarContribuciones(todosHallazgos);

@@ -161,12 +161,12 @@ PROMPTS_JSON = {
   "bultos": "Total de bultos declarados (solo número)",
   "partidas": [
     {
-      "numero": "número de partida",
+      "numero": "número de partida (001, 002, etc.)",
       "descripcion": "descripción de mercancía",
-      "fraccion": "fracción arancelaria",
+      "fraccion": "fracción arancelaria (10 dígitos)",
       "nico": "NICO si aplica",
-      "umc": "unidad de medida comercial",
-      "cantidad_umc": "cantidad en UMC",
+      "umc": "clave de unidad de medida COMERCIAL (UMC) — es una abreviatura como M, PZA, KG, MT, LT, PAR, BTO, ROL. NO confundir con la cantidad ni con la UMT (unidad de tarifa)",
+      "cantidad_umc": "cantidad numérica en UMC (solo el número)",
       "valor_partida": "valor de la partida",
       "precio_unitario": "precio unitario",
       "pais_origen": "país de origen",
