@@ -419,7 +419,16 @@ function mostrarResultado(data) {
   const reporteContenido = document.getElementById('reporte-contenido');
   if (data.reporte_glosa && data.reporte_glosa.trim()) {
     cardReporte.style.display = '';
-    reporteContenido.innerHTML = markdownAHtml(data.reporte_glosa);
+    try {
+      reporteContenido.innerHTML = markdownAHtml(data.reporte_glosa);
+    } catch(e) {
+      // Si falla el renderizador, mostrar texto plano
+      reporteContenido.innerHTML = '<pre style="white-space:pre-wrap;font-size:13px">' +
+        data.reporte_glosa.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') +
+        '</pre>';
+    }
+    // Scroll al reporte
+    setTimeout(() => cardReporte.scrollIntoView({behavior:'smooth', block:'start'}), 300);
   } else {
     cardReporte.style.display = 'none';
   }
@@ -441,74 +450,87 @@ function toggleReporte() {
 }
 
 function markdownAHtml(md) {
-  // Renderizador Markdown mínimo suficiente para el reporte
-  let h = md
-    // Escapar HTML primero
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  // Normalizar saltos de línea
+  const lines = md.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  let html = '';
+  let i = 0;
 
-    // Bloques de código (antes de procesar inline)
-    .replace(/```[\s\S]*?```/g, m => {
-      const code = m.replace(/^```[^\n]*\n?/, '').replace(/\n?```$/, '');
-      return `<pre><code>${code}</code></pre>`;
-    })
+  function esc(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+  function inline(s) {
+    return esc(s)
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>');
+  }
 
-    // Tablas Markdown
-    .replace(/(\|.+\|\n\|[-| :]+\|\n(?:\|.+\|\n?)+)/g, tabla => {
-      const filas = tabla.trim().split('\n');
-      const encabezado = filas[0].split('|').filter(c => c.trim() !== '');
-      let html = '<table><thead><tr>' +
-        encabezado.map(c => `<th>${c.trim()}</th>`).join('') +
-        '</tr></thead><tbody>';
-      for (let i = 2; i < filas.length; i++) {
-        const celdas = filas[i].split('|').filter(c => c.trim() !== '');
-        html += '<tr>' + celdas.map(c => `<td>${c.trim()}</td>`).join('') + '</tr>';
-      }
-      html += '</tbody></table>';
-      return html;
-    })
+  while (i < lines.length) {
+    const line = lines[i];
 
-    // Líneas horizontales
-    .replace(/^---+$/gm, '<hr>')
+    // Línea horizontal
+    if (/^---+$/.test(line.trim())) { html += '<hr>'; i++; continue; }
 
     // Headings
-    .replace(/^# (.+)$/gm,   '<h1>$1</h1>')
-    .replace(/^## (.+)$/gm,  '<h2>$1</h2>')
-    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    const h1 = line.match(/^# (.+)/);   if (h1) { html += `<h1>${inline(h1[1])}</h1>`; i++; continue; }
+    const h2 = line.match(/^## (.+)/);  if (h2) { html += `<h2>${inline(h2[1])}</h2>`; i++; continue; }
+    const h3 = line.match(/^### (.+)/); if (h3) { html += `<h3>${inline(h3[1])}</h3>`; i++; continue; }
 
-    // Negrita e itálica
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g,     '<em>$1</em>')
+    // Tabla Markdown: detectar por primer | al inicio de línea
+    if (/^\|/.test(line)) {
+      const tableLines = [];
+      while (i < lines.length && /^\|/.test(lines[i])) {
+        tableLines.push(lines[i]); i++;
+      }
+      if (tableLines.length >= 2) {
+        const headers = tableLines[0].split('|').filter(c => c.trim());
+        html += '<table><thead><tr>' +
+          headers.map(c => `<th>${inline(c.trim())}</th>`).join('') +
+          '</tr></thead><tbody>';
+        for (let r = 2; r < tableLines.length; r++) {
+          const cells = tableLines[r].split('|').filter(c => c.trim());
+          if (cells.length) {
+            html += '<tr>' + cells.map(c => `<td>${inline(c.trim())}</td>`).join('') + '</tr>';
+          }
+        }
+        html += '</tbody></table>';
+      }
+      continue;
+    }
 
-    // Código inline
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    // Lista no ordenada (-, *, •, □, ✅, ⚠️, ❌)
+    if (/^[-*•□✅⚠️❌]\s/.test(line) || /^  [-*]\s/.test(line)) {
+      html += '<ul>';
+      while (i < lines.length && (/^[-*•□✅⚠️❌]\s/.test(lines[i]) || /^  [-*]\s/.test(lines[i]))) {
+        const text = lines[i].replace(/^[-*•□✅⚠️❌]\s+/, '').replace(/^  [-*]\s+/, '');
+        html += `<li>${inline(text)}</li>`;
+        i++;
+      }
+      html += '</ul>';
+      continue;
+    }
 
-    // Listas (ordenadas y no ordenadas)
-    .replace(/^(\d+)\. (.+)$/gm, '<li class="ol-li">$2</li>')
-    .replace(/^[-□✅⚠️❌] (.+)$/gm, '<li>$1</li>')
-    .replace(/^  [-*] (.+)$/gm, '<li class="li-sub">$1</li>')
+    // Lista ordenada
+    if (/^\d+\.\s/.test(line)) {
+      html += '<ol>';
+      while (i < lines.length && /^\d+\.\s/.test(lines[i])) {
+        const text = lines[i].replace(/^\d+\.\s+/, '');
+        html += `<li>${inline(text)}</li>`;
+        i++;
+      }
+      html += '</ol>';
+      continue;
+    }
 
-    // Párrafos — líneas vacías separan
-    .replace(/\n\n+/g, '</p><p>')
+    // Línea vacía
+    if (line.trim() === '') { i++; continue; }
 
-    // Saltos de línea simples
-    .replace(/\n/g, '<br>');
+    // Párrafo normal
+    html += `<p>${inline(line)}</p>`;
+    i++;
+  }
 
-  // Envolver listas
-  h = h.replace(/(<li[^>]*>[\s\S]+?<\/li>)(<br>)?/g, (m, li) => li);
-  // Wrap en párrafo base
-  h = '<p>' + h + '</p>';
-
-  // Limpiar p vacíos
-  h = h.replace(/<p>\s*<\/p>/g, '');
-  h = h.replace(/<p>(<h[123]>)/g, '$1');
-  h = h.replace(/(<\/h[123]>)<\/p>/g, '$1');
-  h = h.replace(/<p>(<hr>)<\/p>/g, '$1');
-  h = h.replace(/<p>(<table>)/g, '$1');
-  h = h.replace(/(<\/table>)<\/p>/g, '$1');
-  h = h.replace(/<p>(<pre>)/g, '$1');
-  h = h.replace(/(<\/pre>)<\/p>/g, '$1');
-
-  return h;
+  return html;
 }
 
 function renderizarTabla(hallazgos) {
