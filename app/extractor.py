@@ -99,7 +99,7 @@ def identify_document_type(text: str, filename: str) -> TipoDocumento:
         return TipoDocumento.CARTA_318
     if any(k in filename_lower for k in ["cove", "acuse"]):
         return TipoDocumento.COVE
-    if any(k in filename_lower for k in ["packing", "empaque"]):
+    if any(k in filename_lower for k in ["packing", "empaque", "pl", "pack"]):
         return TipoDocumento.PACKING_LIST
     if any(k in filename_lower for k in ["bl", "bill", "lading", "guia", "guía", "awb"]):
         return TipoDocumento.BL
