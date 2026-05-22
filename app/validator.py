@@ -894,33 +894,45 @@ def validar_partidas(ped: dict, factura: dict, packing: dict, carta: dict = None
                     f"La cantidad de la partida {num_partida} ({cant_ped}) no coincide con la factura ({cant_fac_total})."
                 ))
 
-        # ── Precio unitario vs factura ──
+        # ── Precio unitario vs factura (factura en USD, pedimento en MXN → convertir) ──
         if comparar_desc_fac and i < len(partidas_fac):
             p_fac_i = partidas_fac[i]
-            precio_fac = extraer_numero(p_fac_i.get("precio_unitario")) if p_fac_i else None
-            if precio_ped and precio_fac and not valores_numericos_coinciden(precio_ped, precio_fac, 0.02):
-                h.append(hacer_hallazgo(
-                    f"Partida {num_partida} — Precio Unitario",
-                    str(precio_ped), str(precio_fac),
-                    "Factura Comercial",
-                    "Anexo 22 / Art. 64 Ley Aduanera",
-                    RiesgoNivel.CRITICO,
-                    f"El precio unitario de la partida {num_partida} difiere entre pedimento y factura."
-                ))
+            precio_fac_orig = extraer_numero(p_fac_i.get("precio_unitario")) if p_fac_i else None
+            if precio_ped and precio_fac_orig:
+                # Convertir precio de factura a MXN si hay TC disponible
+                tc = extraer_numero(ped.get("tipo_cambio")) or 1.0
+                precio_fac_mxn = precio_fac_orig * tc if tc > 1 else precio_fac_orig
+                if not valores_numericos_coinciden(precio_ped, precio_fac_mxn, 0.05):
+                    moneda_fac = normalizar(factura.get("moneda") or "USD") if factura else "USD"
+                    h.append(hacer_hallazgo(
+                        f"Partida {num_partida} — Precio Unitario",
+                        f"{precio_ped:.4f} MXN",
+                        f"{precio_fac_orig} {moneda_fac} × {tc:.4f} = {precio_fac_mxn:.4f} MXN",
+                        "Factura Comercial",
+                        "Anexo 22 / Art. 64 Ley Aduanera",
+                        RiesgoNivel.CRITICO,
+                        f"El precio unitario de la partida {num_partida} difiere entre pedimento "
+                        f"({precio_ped:.4f} MXN) y factura ({precio_fac_orig} {moneda_fac} = {precio_fac_mxn:.4f} MXN)."
+                    ))
 
-        # ── vs Packing List ──
+        # ── vs Packing List: solo comparar si la UMC del packing coincide con la del pedimento ──
         if partidas_pack:
             p_pack = partidas_pack[i] if i < len(partidas_pack) else None
             if p_pack and isinstance(p_pack, dict):
                 cant_pack = extraer_numero(p_pack.get("cantidad"))
-                if cant_ped and cant_pack and not valores_numericos_coinciden(cant_ped, cant_pack, 0.01):
+                umc_pack  = normalizar(p_pack.get("unidad") or p_pack.get("umc") or "")
+                # Solo comparar cantidades si las unidades son equivalentes
+                # (evita falsos positivos cuando pedimento tiene metros y packing tiene rollos)
+                umc_compatibles = (not umc_ped or not umc_pack or mismo_umc(umc_ped, umc_pack))
+                if umc_compatibles and cant_ped and cant_pack and not valores_numericos_coinciden(cant_ped, cant_pack, 0.01):
                     h.append(hacer_hallazgo(
                         f"Partida {num_partida} — Cantidad vs Packing",
-                        str(cant_ped), str(cant_pack),
+                        f"{cant_ped} {umc_ped}",
+                        f"{cant_pack} {umc_pack}",
                         "Packing List",
                         "Anexo 22",
                         RiesgoNivel.ALTO,
-                        f"La cantidad de la partida {num_partida} del pedimento difiere del packing list."
+                        f"La cantidad de la partida {num_partida} del pedimento ({cant_ped} {umc_ped}) difiere del packing list ({cant_pack} {umc_pack})."
                     ))
 
     return h
