@@ -75,24 +75,106 @@ def valores_numericos_coinciden(v1, v2, tolerancia=0.02) -> bool:
     return dif <= tolerancia
 
 
+# ─────────────────────────────────────────────
+# DICCIONARIO BILINGÜE — términos de comercio exterior
+# Mapea palabras en inglés → equivalente en español (normalizado)
+# ─────────────────────────────────────────────
+TRADUCCION_EN_ES = {
+    # Materiales
+    "GLASS": "VIDRIO", "GLASSES": "VIDRIOS",
+    "STEEL": "ACERO", "IRON": "HIERRO", "ALUMINUM": "ALUMINIO", "ALUMINIUM": "ALUMINIO",
+    "PLASTIC": "PLASTICO", "PLASTICS": "PLASTICOS",
+    "RUBBER": "HULE", "WOOD": "MADERA", "PAPER": "PAPEL",
+    "FABRIC": "TELA", "TEXTILE": "TEXTIL", "FIBER": "FIBRA", "FIBRE": "FIBRA",
+    "COPPER": "COBRE", "BRASS": "LATON", "BRONZE": "BRONCE",
+    "CERAMIC": "CERAMICO", "CERAMICS": "CERAMICOS",
+    "STONE": "PIEDRA", "MARBLE": "MARMOL", "GRANITE": "GRANITO",
+    "FOAM": "ESPUMA", "LEATHER": "CUERO", "COTTON": "ALGODON",
+    # Productos
+    "MOSAIC": "MOSAICO", "MOSAICS": "MOSAICOS", "TILE": "AZULEJO", "TILES": "AZULEJOS",
+    "POOL": "PISCINA", "SWIMMING": "NATACION",
+    "SHEET": "LAMINA", "SHEETS": "LAMINAS", "PLATE": "PLACA", "PLATES": "PLACAS",
+    "PIPE": "TUBO", "PIPES": "TUBOS", "TUBE": "TUBO", "TUBES": "TUBOS",
+    "WIRE": "ALAMBRE", "CABLE": "CABLE", "CABLES": "CABLES",
+    "VALVE": "VALVULA", "VALVES": "VALVULAS",
+    "PUMP": "BOMBA", "PUMPS": "BOMBAS",
+    "MOTOR": "MOTOR", "MOTORS": "MOTORES", "ENGINE": "MOTOR",
+    "BEARING": "RODAMIENTO", "BEARINGS": "RODAMIENTOS",
+    "SCREW": "TORNILLO", "SCREWS": "TORNILLOS", "BOLT": "PERNO", "BOLTS": "PERNOS",
+    "NUT": "TUERCA", "NUTS": "TUERCAS", "WASHER": "RONDANA",
+    "LAMP": "LAMPARA", "LAMPS": "LAMPARAS", "LIGHT": "LUZ", "LIGHTS": "LUCES",
+    "SWITCH": "INTERRUPTOR", "SWITCHES": "INTERRUPTORES",
+    "SENSOR": "SENSOR", "SENSORS": "SENSORES",
+    "BATTERY": "BATERIA", "BATTERIES": "BATERIAS",
+    "CHARGER": "CARGADOR", "CHARGERS": "CARGADORES",
+    "COMPUTER": "COMPUTADORA", "LAPTOP": "LAPTOP",
+    "MONITOR": "MONITOR", "KEYBOARD": "TECLADO", "MOUSE": "MOUSE",
+    "PRINTER": "IMPRESORA", "SCANNER": "ESCANER",
+    "PHONE": "TELEFONO", "CELLULAR": "CELULAR", "MOBILE": "MOVIL",
+    "CAMERA": "CAMARA", "CAMERAS": "CAMARAS",
+    "CHAIR": "SILLA", "CHAIRS": "SILLAS", "TABLE": "MESA", "TABLES": "MESAS",
+    "FURNITURE": "MUEBLE", "SHELF": "ESTANTE", "SHELVES": "ESTANTES",
+    "BOX": "CAJA", "BOXES": "CAJAS", "CASE": "ESTUCHE", "CASES": "ESTUCHES",
+    "BAG": "BOLSA", "BAGS": "BOLSAS", "CONTAINER": "CONTENEDOR",
+    "BOTTLE": "BOTELLA", "BOTTLES": "BOTELLAS",
+    "MEDICINE": "MEDICAMENTO", "DRUG": "FARMACO",
+    "FOOD": "ALIMENTO", "GRAIN": "GRANO", "WHEAT": "TRIGO", "CORN": "MAIZ",
+    "OIL": "ACEITE", "FUEL": "COMBUSTIBLE",
+    "CHEMICAL": "QUIMICO", "CHEMICALS": "QUIMICOS",
+    "PAINT": "PINTURA", "PAINTS": "PINTURAS", "INK": "TINTA",
+    "ADHESIVE": "ADHESIVO", "GLUE": "PEGAMENTO",
+    "TOOL": "HERRAMIENTA", "TOOLS": "HERRAMIENTAS",
+    "MACHINE": "MAQUINA", "MACHINERY": "MAQUINARIA", "EQUIPMENT": "EQUIPO",
+    "PART": "PARTE", "PARTS": "PARTES", "PIECE": "PIEZA", "PIECES": "PIEZAS",
+    "COMPONENT": "COMPONENTE", "COMPONENTS": "COMPONENTES",
+    "SPARE": "REFACCION", "SPARES": "REFACCIONES",
+    "ACCESSORY": "ACCESORIO", "ACCESSORIES": "ACCESORIOS",
+    # Adjetivos comunes
+    "NEW": "NUEVO", "USED": "USADO", "INDUSTRIAL": "INDUSTRIAL",
+    "COMMERCIAL": "COMERCIAL", "ELECTRIC": "ELECTRICO", "ELECTRONIC": "ELECTRONICO",
+    "MECHANICAL": "MECANICO", "HYDRAULIC": "HIDRAULICO", "PNEUMATIC": "NEUMATICO",
+    "AUTOMATIC": "AUTOMATICO", "MANUAL": "MANUAL",
+    "STAINLESS": "INOXIDABLE", "GALVANIZED": "GALVANIZADO",
+    "TEMPERED": "TEMPLADO", "REINFORCED": "REFORZADO",
+    "COATED": "RECUBIERTO", "PAINTED": "PINTADO",
+    "FOR": "PARA", "WITH": "CON", "WITHOUT": "SIN",
+    "HIGH": "ALTO", "LOW": "BAJO", "SMALL": "PEQUENO", "LARGE": "GRANDE",
+}
+
+def _traducir_tokens(tokens: set) -> set:
+    """Traduce tokens en inglés a su equivalente en español usando el diccionario."""
+    return {TRADUCCION_EN_ES.get(t, t) for t in tokens}
+
+
 def _limpiar_token(t: str) -> str:
     """Elimina puntuación de un token individual: S.A. → SA, COMPLEMENTOS, → COMPLEMENTOS."""
     return re.sub(r'[^A-Z0-9]', '', t)
 
 
 def palabras_coinciden(texto1: str, texto2: str, umbral: float = 0.4) -> bool:
-    """Compara dos strings por similitud de palabras clave ignorando acentos y puntuación."""
-    # normalizar() ya quita acentos; aquí además limpiamos puntuación de cada token
-    p1 = {_limpiar_token(w) for w in normalizar(texto1).split()}
-    p2 = {_limpiar_token(w) for w in normalizar(texto2).split()}
-    # Filtrar tokens vacíos y palabras comunes sin valor discriminante
-    stop = {"DE", "LA", "EL", "LOS", "LAS", "SA", "CV", "AND", "THE", "OF", "Y", ""}
-    p1 = p1 - stop
-    p2 = p2 - stop
+    """
+    Compara dos strings por similitud de palabras clave.
+    Soporta descripciones bilingües: traduce tokens EN→ES antes de comparar,
+    evitando falsos positivos como 'GLASS MOSAIC FOR POOL' vs 'MOSAICO DE VIDRIO PARA PISCINA'.
+    """
+    stop = {"DE", "LA", "EL", "LOS", "LAS", "SA", "CV", "AND", "THE", "OF", "Y", "FOR", "PARA",
+            "CON", "SIN", "EN", "A", "AL", "DEL", "LO", "LE", "SE", ""}
+    p1 = {_limpiar_token(w) for w in normalizar(texto1).split()} - stop
+    p2 = {_limpiar_token(w) for w in normalizar(texto2).split()} - stop
     if not p1 or not p2:
         return True
-    coincidencia = len(p1 & p2) / min(len(p1), len(p2))
-    return coincidencia >= umbral
+
+    # Comparación directa
+    if len(p1 & p2) / min(len(p1), len(p2)) >= umbral:
+        return True
+
+    # Traducir ambos conjuntos EN→ES e intentar de nuevo
+    p1t = _traducir_tokens(p1) - stop
+    p2t = _traducir_tokens(p2) - stop
+    if not p1t or not p2t:
+        return True
+    coincidencia_traducida = len(p1t & p2t) / min(len(p1t), len(p2t))
+    return coincidencia_traducida >= umbral
 
 
 def domicilios_coinciden(dom1: str, dom2: str, umbral: float = 0.3) -> bool:
