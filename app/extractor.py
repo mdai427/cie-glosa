@@ -123,11 +123,17 @@ def identify_document_type(text: str, filename: str) -> TipoDocumento:
 # ─────────────────────────────────────────────
 # PROMPTS DE EXTRACCIÓN (texto o imagen)
 # ─────────────────────────────────────────────
-SYSTEM_PROMPT = """Eres un experto en comercio exterior mexicano con profundo conocimiento de pedimentos,
-facturas comerciales, documentos de transporte, COVEs y trámites aduanales.
-Tu tarea es extraer información estructurada de documentos aduanales.
-Devuelve SIEMPRE únicamente JSON válido, sin markdown, sin explicaciones adicionales.
-Si un campo no aparece en el documento, usa null. Nunca inventes datos."""
+SYSTEM_PROMPT = """Eres un sistema de extracción de datos de documentos aduanales mexicanos.
+Tu única tarea es COPIAR literalmente los valores que aparecen en el documento, sin corregir, interpretar ni normalizar.
+
+REGLAS CRÍTICAS DE EXTRACCIÓN:
+- Copia los caracteres EXACTAMENTE como aparecen: si ves 'O' copia 'O', si ves '0' copia '0', NUNCA los intercambies
+- Para números de referencia (BL, factura, guía, COVE): transcribe caracter por caracter, sin cambios
+- Para nombres y razones sociales: copia el texto literal del documento
+- Para fechas: copia el formato exacto que aparece (no lo conviertas a otro formato)
+- Si un campo no aparece en el documento usa null
+- NUNCA inventes, corrijas, ni "mejores" los datos aunque parezcan erróneos
+- Devuelve ÚNICAMENTE JSON válido, sin markdown, sin explicaciones"""
 
 PROMPTS_JSON = {
     TipoDocumento.PEDIMENTO: """{
@@ -290,12 +296,15 @@ def build_extraction_prompt(doc_type: TipoDocumento) -> str:
 
 {schema}
 
-Instrucciones:
-- Si un campo no aparece, usa null
-- Para valores numéricos, incluye el número tal como aparece en el documento
-- Para RFC: copia exactamente los caracteres, incluyendo mayúsculas
+INSTRUCCIONES CRÍTICAS:
+- Copia el valor EXACTAMENTE como aparece en el documento, caracter por caracter
+- Para números de referencia (BL, factura, guía, COVE, RFC, ID fiscal): transcripción literal sin correcciones
+  * Si ves la letra O, escribe O. Si ves el dígito 0, escribe 0. NUNCA los intercambies.
+  * Si ves I (i mayúscula) y 1 (uno), escríbelos tal cual sin cambios.
+- Para valores monetarios/numéricos: incluye el número tal como aparece (con comas, puntos, etc.)
 - Para Incoterm: extrae solo la clave (EXW, FOB, CIF, etc.)
-- Nunca inventes datos que no estén en el documento"""
+- Si un campo no aparece en el documento: null
+- NUNCA inventes, normalices ni corrijas datos aunque parezcan erróneos o inusuales"""
 
 
 # ─────────────────────────────────────────────

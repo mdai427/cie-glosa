@@ -31,6 +31,25 @@ def normalizar(valor) -> str:
     return _quitar_acentos(str(valor).strip().upper()).replace("  ", " ")
 
 
+def normalizar_ref(valor) -> str:
+    """
+    Normaliza un campo de referencia (BL, número factura, COVE, ID fiscal, fracciones)
+    para comparación estricta caracter a caracter.
+    Solo elimina espacios iniciales/finales y espacios internos múltiples.
+    NO convierte a mayúsculas (un '0' y una 'O' son diferentes por diseño).
+    Solo quita acentos y puntuación no alfanumérica irrelevante: guiones, puntos, comas, espacios.
+    """
+    if valor is None:
+        return ""
+    s = str(valor).strip()
+    s = _quitar_acentos(s)
+    # Eliminar solo espacios internos extra
+    s = re.sub(r'\s+', '', s)   # quitar todos los espacios para comparación exacta
+    # Quitar guiones y puntos que pueden aparecer como separadores de formato
+    s = re.sub(r'[-./]', '', s)
+    return s.upper()             # al final, mayúsculas para que A==a pero 0≠O ya fue preservado
+
+
 def normalizar_rfc(rfc) -> str:
     """Normaliza RFC eliminando guiones y espacios para comparación."""
     return re.sub(r'[\s\-]', '', str(rfc or "").strip().upper())
@@ -300,9 +319,9 @@ def validar_proveedor(ped: dict, factura: dict, carta: dict) -> List[Hallazgo]:
             "El domicilio del proveedor difiere entre documentos."
         ))
 
-    # ID fiscal proveedor
-    id_ped = normalizar(ped.get("id_fiscal_proveedor"))
-    id_doc = normalizar(doc.get("id_fiscal_proveedor"))
+    # ID fiscal proveedor — comparación estricta (0 ≠ O, I ≠ 1)
+    id_ped = normalizar_ref(ped.get("id_fiscal_proveedor"))
+    id_doc = normalizar_ref(doc.get("id_fiscal_proveedor"))
     if id_ped and id_doc and id_ped != id_doc:
         h.append(hacer_hallazgo(
             "ID Fiscal Proveedor",
@@ -312,9 +331,9 @@ def validar_proveedor(ped: dict, factura: dict, carta: dict) -> List[Hallazgo]:
             "El ID fiscal del proveedor no coincide entre pedimento y documento fuente."
         ))
 
-    # Número de factura
-    nfac_ped = normalizar(ped.get("numero_factura"))
-    nfac_doc = normalizar(doc.get("numero_factura"))
+    # Número de factura — comparación estricta (0 ≠ O, I ≠ 1)
+    nfac_ped = normalizar_ref(ped.get("numero_factura"))
+    nfac_doc = normalizar_ref(doc.get("numero_factura"))
     if nfac_ped and nfac_doc and nfac_ped != nfac_doc:
         h.append(hacer_hallazgo(
             "Número de Factura",
@@ -556,8 +575,8 @@ def validar_cove(ped: dict, cove: dict) -> List[Hallazgo]:
     if not cove:
         return h
 
-    cove_ped = normalizar(ped.get("numero_cove"))
-    cove_doc = normalizar(cove.get("numero_cove"))
+    cove_ped = normalizar_ref(ped.get("numero_cove"))
+    cove_doc = normalizar_ref(cove.get("numero_cove"))
     if cove_ped and cove_doc and cove_ped != cove_doc:
         h.append(hacer_hallazgo(
             "Número de COVE",
@@ -568,9 +587,9 @@ def validar_cove(ped: dict, cove: dict) -> List[Hallazgo]:
             "El número de COVE del pedimento no coincide con el COVE cargado."
         ))
 
-    # Factura vinculada en COVE
-    nfac_ped = normalizar(ped.get("numero_factura"))
-    nfac_cove = normalizar(cove.get("numero_factura"))
+    # Factura vinculada en COVE — comparación estricta
+    nfac_ped = normalizar_ref(ped.get("numero_factura"))
+    nfac_cove = normalizar_ref(cove.get("numero_factura"))
     if nfac_ped and nfac_cove and nfac_ped != nfac_cove:
         h.append(hacer_hallazgo(
             "Factura Vinculada en COVE",
@@ -617,10 +636,10 @@ def validar_cove(ped: dict, cove: dict) -> List[Hallazgo]:
 def validar_logistica(ped: dict, packing: dict, bl: dict) -> List[Hallazgo]:
     h = []
 
-    # Número BL — validar vs BL y vs Packing List
-    bl_ped = normalizar(ped.get("numero_bl"))
+    # Número BL — validar vs BL y vs Packing List (comparación estricta: 0 ≠ O)
+    bl_ped = normalizar_ref(ped.get("numero_bl"))
 
-    bl_doc = normalizar(bl.get("numero_bl")) if bl else ""
+    bl_doc = normalizar_ref(bl.get("numero_bl")) if bl else ""
     if bl_ped and bl_doc and bl_ped != bl_doc:
         h.append(hacer_hallazgo(
             "Número BL / Guía",
@@ -631,8 +650,8 @@ def validar_logistica(ped: dict, packing: dict, bl: dict) -> List[Hallazgo]:
             "El número de BL del pedimento no coincide con el documento de transporte."
         ))
 
-    # Número BL en Packing List
-    bl_pack = normalizar(packing.get("numero_bl") or packing.get("bl") or "") if packing else ""
+    # Número BL en Packing List — comparación estricta
+    bl_pack = normalizar_ref(packing.get("numero_bl") or packing.get("bl") or "") if packing else ""
     if bl_ped and bl_pack and bl_ped != bl_pack:
         h.append(hacer_hallazgo(
             "Número BL / Guía vs Packing List",
