@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 
 from app.extractor import process_document
 from app.validator import ejecutar_validaciones
+from app.glosa_report import generar_reporte_glosa
 from app.models import ResultadoGlosa, SemaforoColor
 from app.security import validar_archivo, sanitizar_nombre, MAX_FILES_PER_REVISION
 from app.contribuciones import calcular_contribuciones
@@ -342,6 +343,16 @@ async def crear_revision(
         logger.error(f"Error en validaciones revision {revision_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Error en validaciones: {str(e)}")
 
+    # Generar reporte narrativo del experto glosador
+    try:
+        reporte_glosa = generar_reporte_glosa(
+            documentos_extraidos, hallazgos, campos_correctos,
+            referencia=ref, fecha=fecha
+        )
+    except Exception as e:
+        logger.error(f"Error generando reporte glosa {revision_id}: {e}")
+        reporte_glosa = f"⚠️ No se pudo generar el reporte narrativo: {str(e)}"
+
     resultado = ResultadoGlosa(
         id=revision_id,
         referencia=ref,
@@ -349,6 +360,7 @@ async def crear_revision(
         documentos_cargados=documentos_cargados,
         tipos_detectados=tipos_detectados,
         campos_correctos=campos_correctos,
+        reporte_glosa=reporte_glosa,
         hallazgos=hallazgos,
         semaforo=semaforo,
         recomendacion=recomendacion,

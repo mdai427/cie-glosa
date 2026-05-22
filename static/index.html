@@ -71,6 +71,44 @@
     }
     .ci-igi { color: var(--alto); }
     .ci-total-val { color: var(--verde); font-size: 21px; }
+
+    /* ── Reporte Glosador ── */
+    .reporte-card {
+      border: 1px solid #2563a8;
+      overflow: hidden;
+    }
+    .reporte-header {
+      padding: 14px 20px;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(37, 99, 168, 0.07);
+      color: var(--azul);
+      border-bottom: 1px solid #2563a8;
+      user-select: none;
+    }
+    .reporte-header:hover { background: rgba(37, 99, 168, 0.13); }
+    .reporte-chevron { font-size: 12px; }
+    .reporte-body { padding: 20px 24px; }
+    .reporte-md { font-size: 13.5px; line-height: 1.7; color: #1e2a3a; }
+    .reporte-md h1 { font-size: 18px; color: var(--azul); margin: 0 0 12px; }
+    .reporte-md h2 { font-size: 14px; font-weight: 700; color: var(--azul);
+                     margin: 20px 0 8px; padding-bottom: 4px;
+                     border-bottom: 1px solid var(--gris-borde); }
+    .reporte-md p  { margin: 6px 0; }
+    .reporte-md ul, .reporte-md ol { margin: 6px 0 6px 20px; }
+    .reporte-md li { margin: 4px 0; }
+    .reporte-md table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 10px 0; }
+    .reporte-md th { background: var(--azul); color: #fff; padding: 7px 10px; text-align: left; font-size: 11px; }
+    .reporte-md td { padding: 6px 10px; border-bottom: 1px solid var(--gris-borde); vertical-align: top; }
+    .reporte-md tr:nth-child(even) td { background: var(--gris-bg); }
+    .reporte-md strong { color: #1e2a3a; }
+    .reporte-md code { background: #f0f4f8; padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+    .reporte-md hr { border: none; border-top: 1px solid var(--gris-borde); margin: 16px 0; }
+    .reporte-cargando { text-align: center; padding: 32px; color: var(--gris-texto); font-size: 13px; }
   </style>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -341,6 +379,17 @@
             </div>
           </div>
           <div id="contrib-advertencias"></div>
+        </div>
+      </div>
+
+      <!-- Reporte Experto Glosador -->
+      <div id="card-reporte" class="card reporte-card" style="display:none">
+        <div class="reporte-header" onclick="toggleReporte()">
+          <span>📋 Dictamen del Glosador Experto</span>
+          <span id="reporte-toggle" class="reporte-chevron">▼</span>
+        </div>
+        <div id="reporte-body" class="reporte-body">
+          <div id="reporte-contenido" class="reporte-md"></div>
         </div>
       </div>
 

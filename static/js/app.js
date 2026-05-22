@@ -414,12 +414,101 @@ function mostrarResultado(data) {
     cardCorrectos.style.display = 'none';
   }
 
+  // Reporte experto glosador
+  const cardReporte = document.getElementById('card-reporte');
+  const reporteContenido = document.getElementById('reporte-contenido');
+  if (data.reporte_glosa && data.reporte_glosa.trim()) {
+    cardReporte.style.display = '';
+    reporteContenido.innerHTML = markdownAHtml(data.reporte_glosa);
+  } else {
+    cardReporte.style.display = 'none';
+  }
+
   // Renderizar tabla y contribuciones
   renderizarTabla(todosHallazgos);
   renderizarContribuciones(todosHallazgos);
 
   mostrarSeccion('resultado');
   window.scrollTo(0, 0);
+}
+
+function toggleReporte() {
+  const body = document.getElementById('reporte-body');
+  const chevron = document.getElementById('reporte-toggle');
+  const oculto = body.style.display === 'none';
+  body.style.display = oculto ? '' : 'none';
+  chevron.textContent = oculto ? '▼' : '▶';
+}
+
+function markdownAHtml(md) {
+  // Renderizador Markdown mínimo suficiente para el reporte
+  let h = md
+    // Escapar HTML primero
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+    // Bloques de código (antes de procesar inline)
+    .replace(/```[\s\S]*?```/g, m => {
+      const code = m.replace(/^```[^\n]*\n?/, '').replace(/\n?```$/, '');
+      return `<pre><code>${code}</code></pre>`;
+    })
+
+    // Tablas Markdown
+    .replace(/(\|.+\|\n\|[-| :]+\|\n(?:\|.+\|\n?)+)/g, tabla => {
+      const filas = tabla.trim().split('\n');
+      const encabezado = filas[0].split('|').filter(c => c.trim() !== '');
+      let html = '<table><thead><tr>' +
+        encabezado.map(c => `<th>${c.trim()}</th>`).join('') +
+        '</tr></thead><tbody>';
+      for (let i = 2; i < filas.length; i++) {
+        const celdas = filas[i].split('|').filter(c => c.trim() !== '');
+        html += '<tr>' + celdas.map(c => `<td>${c.trim()}</td>`).join('') + '</tr>';
+      }
+      html += '</tbody></table>';
+      return html;
+    })
+
+    // Líneas horizontales
+    .replace(/^---+$/gm, '<hr>')
+
+    // Headings
+    .replace(/^# (.+)$/gm,   '<h1>$1</h1>')
+    .replace(/^## (.+)$/gm,  '<h2>$1</h2>')
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+
+    // Negrita e itálica
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g,     '<em>$1</em>')
+
+    // Código inline
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+
+    // Listas (ordenadas y no ordenadas)
+    .replace(/^(\d+)\. (.+)$/gm, '<li class="ol-li">$2</li>')
+    .replace(/^[-□✅⚠️❌] (.+)$/gm, '<li>$1</li>')
+    .replace(/^  [-*] (.+)$/gm, '<li class="li-sub">$1</li>')
+
+    // Párrafos — líneas vacías separan
+    .replace(/\n\n+/g, '</p><p>')
+
+    // Saltos de línea simples
+    .replace(/\n/g, '<br>');
+
+  // Envolver listas
+  h = h.replace(/(<li[^>]*>[\s\S]+?<\/li>)(<br>)?/g, (m, li) => li);
+  // Wrap en párrafo base
+  h = '<p>' + h + '</p>';
+
+  // Limpiar p vacíos
+  h = h.replace(/<p>\s*<\/p>/g, '');
+  h = h.replace(/<p>(<h[123]>)/g, '$1');
+  h = h.replace(/(<\/h[123]>)<\/p>/g, '$1');
+  h = h.replace(/<p>(<hr>)<\/p>/g, '$1');
+  h = h.replace(/<p>(<table>)/g, '$1');
+  h = h.replace(/(<\/table>)<\/p>/g, '$1');
+  h = h.replace(/<p>(<pre>)/g, '$1');
+  h = h.replace(/(<\/pre>)<\/p>/g, '$1');
+
+  return h;
 }
 
 function renderizarTabla(hallazgos) {
