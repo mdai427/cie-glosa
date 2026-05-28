@@ -845,16 +845,23 @@ async function exportarPDF() {
       <tbody>${filas}</tbody>
     </table>
 
-    ${resultadoActual.reporte_glosa ? `
+    ${(() => {
+      // Intentar usar reporte_glosa del resultado, o capturar el HTML ya renderizado en pantalla
+      const textoReporte = (resultadoActual.reporte_glosa || '').trim();
+      const htmlRendered = document.getElementById('reporte-contenido') ? document.getElementById('reporte-contenido').innerHTML.trim() : '';
+      const contenidoFinal = textoReporte ? markdownAHtml(textoReporte) : htmlRendered;
+      if (!contenidoFinal) return '';
+      return `
     <!-- DICTAMEN GLOSADOR EXPERTO -->
     <div style="margin-top:28px;page-break-before:always">
       <div style="background:#1B2B6B;color:#fff;padding:10px 16px;border-radius:6px 6px 0 0;font-size:12px;font-weight:700;letter-spacing:.3px">
         Dictamen del Glosador Aduanal Experto
       </div>
       <div class="reporte-md" style="border:1px solid #1B2B6B;border-top:none;border-radius:0 0 6px 6px;padding:20px 22px;font-size:11px;line-height:1.7;color:#1a1a2e">
-        ${markdownAHtml(resultadoActual.reporte_glosa)}
+        ${contenidoFinal}
       </div>
-    </div>` : ''}
+    </div>`;
+    })()}
 
     <!-- FOOTER -->
     <div class="rpt-footer">
