@@ -128,6 +128,7 @@ Tu única tarea es COPIAR literalmente los valores que aparecen en el documento,
 
 REGLAS CRÍTICAS DE EXTRACCIÓN:
 - Copia los caracteres EXACTAMENTE como aparecen: si ves 'O' copia 'O', si ves '0' copia '0', NUNCA los intercambies
+- ESPECIALMENTE en número de BL/guía: es un campo de auditoría — si el documento tiene un error (O en lugar de 0 o viceversa), debes copiarlo con ese error exacto. No "corrijas" nada.
 - Para números de referencia (BL, factura, guía, COVE): transcribe caracter por caracter, sin cambios
 - Para nombres y razones sociales: copia el texto literal del documento
 - Para fechas: copia el formato exacto que aparece (no lo conviertas a otro formato)
@@ -156,7 +157,7 @@ PROMPTS_JSON = {
   "incrementables_otros": "Otros incrementables declarados",
   "tipo_cambio": "Tipo de cambio aplicado",
   "numero_cove": "Número de COVE declarado",
-  "numero_bl": "Número de BL, guía aérea, AWB o documento de transporte (campo 'NO. GUIA/ORDEN EMBARQUE/ID' en el pedimento)",
+  "numero_bl": "Número de BL, guía aérea, AWB o documento de transporte (campo 'NO. GUIA/ORDEN EMBARQUE/ID' en el pedimento) — TRANSCRIPCIÓN LITERAL: si ves letra O escribe O, si ves dígito 0 escribe 0, NO los intercambies",
   "numero_contenedor": "Número del contenedor si aparece (formato: 4 letras + 7 dígitos, ej: MSCU1234567). null si no hay contenedor declarado",
   "peso_bruto": "Peso bruto total declarado (solo número)",
   "bultos": "Total de bultos declarados (solo número)",
@@ -270,7 +271,7 @@ PROMPTS_JSON = {
 }""",
 
     TipoDocumento.BL: """{
-  "numero_bl": "Número de B/L, guía aérea o documento de transporte",
+  "numero_bl": "Número de B/L, guía aérea o documento de transporte — TRANSCRIPCIÓN LITERAL caracter por caracter: si ves la letra O escribe O, si ves el dígito 0 escribe 0, NO los intercambies aunque parezca un error tipográfico",
   "shipper": "Nombre del embarcador",
   "consignee": "Nombre del consignatario",
   "notify_party": "Notify party si aplica",
