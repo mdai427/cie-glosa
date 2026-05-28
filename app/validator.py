@@ -337,31 +337,59 @@ def validar_importador(ped: dict, factura: dict, carta: dict) -> List[Hallazgo]:
                 f"RFC del pedimento ({rfc_ped}) difiere del {fuente} ({rfc_doc}). Verificar — puede ser diferencia de formato (guiones)."
             ))
 
-    # Nombre importador
+    # Nombre importador — comparar vs factura y/o carta 318
     nom_ped = normalizar(ped.get("nombre_importador"))
     nom_fac = normalizar(factura.get("nombre_importador")) if factura else ""
-    if nom_ped and nom_fac and not palabras_coinciden(nom_ped, nom_fac, 0.5):
-        h.append(hacer_hallazgo(
-            "Nombre / Razón Social Importador",
-            ped.get("nombre_importador"), factura.get("nombre_importador"),
-            "Factura Comercial",
-            "Anexo 22 / RGCE 3.1.8",
-            RiesgoNivel.ALTO,
-            "La razón social del importador no coincide entre pedimento y factura. Verificar."
-        ))
+    nom_318 = normalizar(carta.get("nombre_importador")) if carta else ""
+    # Primero intentar vs factura; si no hay factura, intentar vs carta
+    if nom_ped:
+        if nom_fac and not palabras_coinciden(nom_ped, nom_fac, 0.5):
+            # También verificar vs carta 318 antes de reportar error
+            si_carta_ok = nom_318 and palabras_coinciden(nom_ped, nom_318, 0.5)
+            if not si_carta_ok:
+                h.append(hacer_hallazgo(
+                    "Nombre / Razón Social Importador",
+                    ped.get("nombre_importador"), factura.get("nombre_importador"),
+                    "Factura Comercial",
+                    "Anexo 22 / RGCE 3.1.8",
+                    RiesgoNivel.ALTO,
+                    "La razón social del importador no coincide entre pedimento y factura. Verificar."
+                ))
+        elif not nom_fac and nom_318 and not palabras_coinciden(nom_ped, nom_318, 0.5):
+            h.append(hacer_hallazgo(
+                "Nombre / Razón Social Importador",
+                ped.get("nombre_importador"), carta.get("nombre_importador"),
+                "Carta 3.1.8",
+                "Anexo 22 / RGCE 3.1.8",
+                RiesgoNivel.ALTO,
+                "La razón social del importador no coincide entre pedimento y carta 3.1.8. Verificar."
+            ))
 
-    # Domicilio importador
+    # Domicilio importador — comparar vs factura y/o carta 318
     dom_ped = normalizar(ped.get("domicilio_importador"))
     dom_fac = normalizar(factura.get("domicilio_importador")) if factura else ""
-    if dom_ped and dom_fac and not domicilios_coinciden(dom_ped, dom_fac, 0.35):
-        h.append(hacer_hallazgo(
-            "Domicilio Importador",
-            ped.get("domicilio_importador"), factura.get("domicilio_importador"),
-            "Factura Comercial",
-            "Anexo 22 / RGCE 3.1.8",
-            RiesgoNivel.MEDIO,
-            "El domicilio del importador difiere entre documentos. Revisar."
-        ))
+    dom_318 = normalizar(carta.get("domicilio_importador")) if carta else ""
+    if dom_ped:
+        if dom_fac and not domicilios_coinciden(dom_ped, dom_fac, 0.35):
+            si_carta_ok = dom_318 and domicilios_coinciden(dom_ped, dom_318, 0.35)
+            if not si_carta_ok:
+                h.append(hacer_hallazgo(
+                    "Domicilio Importador",
+                    ped.get("domicilio_importador"), factura.get("domicilio_importador"),
+                    "Factura Comercial",
+                    "Anexo 22 / RGCE 3.1.8",
+                    RiesgoNivel.MEDIO,
+                    "El domicilio del importador difiere entre documentos. Revisar."
+                ))
+        elif not dom_fac and dom_318 and not domicilios_coinciden(dom_ped, dom_318, 0.35):
+            h.append(hacer_hallazgo(
+                "Domicilio Importador",
+                ped.get("domicilio_importador"), carta.get("domicilio_importador"),
+                "Carta 3.1.8",
+                "Anexo 22 / RGCE 3.1.8",
+                RiesgoNivel.MEDIO,
+                "El domicilio del importador difiere entre pedimento y carta 3.1.8. Revisar."
+            ))
 
     return h
 
@@ -372,67 +400,97 @@ def validar_importador(ped: dict, factura: dict, carta: dict) -> List[Hallazgo]:
 
 def validar_proveedor(ped: dict, factura: dict, carta: dict) -> List[Hallazgo]:
     h = []
-    doc = factura or carta
-    fuente = "Factura Comercial" if factura else "Carta 3.1.8"
-    if not doc:
+    # Comparar vs factura Y carta 318 — el checklist pide validar contra ambos
+    # Si hay factura, es la fuente primaria; carta 318 es alternativa/complemento
+    fuente_fac  = "Factura Comercial"
+    fuente_318  = "Carta 3.1.8"
+
+    prov_ped = normalizar(ped.get("nombre_proveedor"))
+    dom_ped  = normalizar(ped.get("domicilio_proveedor"))
+    id_ped   = normalizar_ref(ped.get("id_fiscal_proveedor"))
+
+    if not factura and not carta:
         return h
 
-    # Nombre proveedor
-    prov_ped = normalizar(ped.get("nombre_proveedor"))
-    prov_doc = normalizar(doc.get("nombre_proveedor"))
-    if prov_ped and prov_doc and not palabras_coinciden(prov_ped, prov_doc, 0.4):
-        h.append(hacer_hallazgo(
-            "Nombre Proveedor",
-            ped.get("nombre_proveedor"), doc.get("nombre_proveedor"), fuente,
-            "Anexo 22 / RGCE 3.1.8",
-            RiesgoNivel.ALTO,
-            "El proveedor declarado en pedimento no coincide con el documento fuente."
-        ))
+    # Nombre proveedor — si coincide con alguno de los documentos, no es error
+    prov_fac = normalizar(factura.get("nombre_proveedor")) if factura else ""
+    prov_318 = normalizar(carta.get("nombre_proveedor")) if carta else ""
+    if prov_ped:
+        ok_fac = not prov_fac or palabras_coinciden(prov_ped, prov_fac, 0.4)
+        ok_318 = not prov_318 or palabras_coinciden(prov_ped, prov_318, 0.4)
+        if prov_fac and not ok_fac and (not prov_318 or not ok_318):
+            fuente_err = fuente_fac if prov_fac else fuente_318
+            val_doc = factura.get("nombre_proveedor") if prov_fac else (carta.get("nombre_proveedor") if carta else "")
+            h.append(hacer_hallazgo(
+                "Nombre Proveedor",
+                ped.get("nombre_proveedor"), val_doc, fuente_err,
+                "Anexo 22 / RGCE 3.1.8",
+                RiesgoNivel.ALTO,
+                "El proveedor declarado en pedimento no coincide con factura ni carta 3.1.8."
+            ))
 
     # Domicilio proveedor
-    dom_ped = normalizar(ped.get("domicilio_proveedor"))
-    dom_doc = normalizar(doc.get("domicilio_proveedor"))
-    if dom_ped and dom_doc and not domicilios_coinciden(dom_ped, dom_doc, 0.3):
-        h.append(hacer_hallazgo(
-            "Domicilio Proveedor",
-            ped.get("domicilio_proveedor"), doc.get("domicilio_proveedor"), fuente,
-            "Anexo 22 / RGCE 3.1.8",
-            RiesgoNivel.MEDIO,
-            "El domicilio del proveedor difiere entre documentos."
-        ))
+    dom_fac = normalizar(factura.get("domicilio_proveedor")) if factura else ""
+    dom_318 = normalizar(carta.get("domicilio_proveedor")) if carta else ""
+    if dom_ped:
+        ok_fac = not dom_fac or domicilios_coinciden(dom_ped, dom_fac, 0.3)
+        ok_318 = not dom_318 or domicilios_coinciden(dom_ped, dom_318, 0.3)
+        if dom_fac and not ok_fac and (not dom_318 or not ok_318):
+            h.append(hacer_hallazgo(
+                "Domicilio Proveedor",
+                ped.get("domicilio_proveedor"), factura.get("domicilio_proveedor") if factura else carta.get("domicilio_proveedor"),
+                fuente_fac if factura else fuente_318,
+                "Anexo 22 / RGCE 3.1.8",
+                RiesgoNivel.MEDIO,
+                "El domicilio del proveedor difiere entre pedimento y documentos fuente."
+            ))
 
-    # ID fiscal proveedor — comparación estricta (0 ≠ O, I ≠ 1)
-    id_ped = normalizar_ref(ped.get("id_fiscal_proveedor"))
-    id_doc = normalizar_ref(doc.get("id_fiscal_proveedor"))
-    if id_ped and id_doc and id_ped != id_doc:
-        h.append(hacer_hallazgo(
-            "ID Fiscal Proveedor",
-            ped.get("id_fiscal_proveedor"), doc.get("id_fiscal_proveedor"), fuente,
-            "Anexo 22 / RGCE 3.1.8",
-            RiesgoNivel.ALTO,
-            "El ID fiscal del proveedor no coincide entre pedimento y documento fuente."
-        ))
+    # ID Fiscal proveedor — comparación estricta (0 ≠ O, I ≠ 1)
+    id_fac = normalizar_ref(factura.get("id_fiscal_proveedor")) if factura else ""
+    id_318 = normalizar_ref(carta.get("id_fiscal_proveedor")) if carta else ""
+    if id_ped:
+        ok_fac = not id_fac or id_ped == id_fac
+        ok_318 = not id_318 or id_ped == id_318
+        if id_fac and not ok_fac and (not id_318 or not ok_318):
+            fuente_id = fuente_fac if id_fac else fuente_318
+            val_id = factura.get("id_fiscal_proveedor") if id_fac else (carta.get("id_fiscal_proveedor") if carta else "")
+            h.append(hacer_hallazgo(
+                "ID Fiscal Proveedor",
+                ped.get("id_fiscal_proveedor"), val_id, fuente_id,
+                "Anexo 22 / RGCE 3.1.8",
+                RiesgoNivel.ALTO,
+                "El ID fiscal del proveedor no coincide entre pedimento y documentos fuente."
+            ))
 
     # Número de factura — comparación estricta (0 ≠ O, I ≠ 1)
-    nfac_ped = normalizar_ref(ped.get("numero_factura"))
-    nfac_doc = normalizar_ref(doc.get("numero_factura"))
-    if nfac_ped and nfac_doc and nfac_ped != nfac_doc:
-        h.append(hacer_hallazgo(
-            "Número de Factura",
-            ped.get("numero_factura"), doc.get("numero_factura"), fuente,
-            "Anexo 22 / RGCE 3.1.8",
-            RiesgoNivel.CRITICO,
-            "El número de factura declarado en pedimento no coincide con el documento cargado."
-        ))
+    # Usar factura como primaria, carta 318 como alternativa
+    nfac_ped  = normalizar_ref(ped.get("numero_factura"))
+    nfac_fac  = normalizar_ref(factura.get("numero_factura")) if factura else ""
+    nfac_318  = normalizar_ref(carta.get("numero_factura")) if carta else ""
+    if nfac_ped:
+        ok_nfac_fac = not nfac_fac or nfac_ped == nfac_fac
+        ok_nfac_318 = not nfac_318 or nfac_ped == nfac_318
+        if nfac_fac and not ok_nfac_fac and (not nfac_318 or not ok_nfac_318):
+            val_doc = factura.get("numero_factura") if nfac_fac else (carta.get("numero_factura") if carta else "")
+            fuente_nf = "Factura Comercial" if nfac_fac else "Carta 3.1.8"
+            h.append(hacer_hallazgo(
+                "Número de Factura",
+                ped.get("numero_factura"), val_doc, fuente_nf,
+                "Anexo 22 / RGCE 3.1.8",
+                RiesgoNivel.CRITICO,
+                "El número de factura declarado en pedimento no coincide con el documento cargado."
+            ))
 
     # Fecha de factura — comparación normalizada (soporta formatos MX y EN)
     fecha_ped = normalizar(ped.get("fecha_factura"))
-    fecha_doc = normalizar(doc.get("fecha_factura"))
+    doc_fecha = factura or carta
+    fuente_fecha = "Factura Comercial" if factura else "Carta 3.1.8"
+    fecha_doc = normalizar(doc_fecha.get("fecha_factura") if doc_fecha else "")
     if fecha_ped and fecha_doc and fecha_ped != fecha_doc:
         if normalizar_fecha(fecha_ped) != normalizar_fecha(fecha_doc):
             h.append(hacer_hallazgo(
                 "Fecha de Factura",
-                ped.get("fecha_factura"), doc.get("fecha_factura"), fuente,
+                ped.get("fecha_factura"), doc_fecha.get("fecha_factura"), fuente_fecha,
                 "Anexo 22 / RGCE 3.1.8",
                 RiesgoNivel.ALTO,
                 "La fecha de factura difiere entre el pedimento y el documento fuente."
@@ -733,6 +791,15 @@ def validar_cove(ped: dict, cove: dict) -> List[Hallazgo]:
 # BLOQUE F — LOGÍSTICA (Peso, Bultos, BL)
 # ─────────────────────────────────────────────
 
+CONTENEDOR_RE = re.compile(r'^[A-Z]{4}\d{7}$')
+
+def _normalizar_contenedor(valor) -> str:
+    """Normaliza número de contenedor: elimina espacios/guiones, mayúsculas."""
+    if not valor:
+        return ""
+    return re.sub(r'[\s\-]', '', str(valor).strip().upper())
+
+
 def validar_logistica(ped: dict, packing: dict, bl: dict) -> List[Hallazgo]:
     h = []
 
@@ -811,6 +878,46 @@ def validar_logistica(ped: dict, packing: dict, bl: dict) -> List[Hallazgo]:
                 "Anexo 22",
                 RiesgoNivel.ALTO,
                 f"Bultos en pedimento ({int(bultos_ped)}) difieren del {fuente} ({int(bultos_doc)})."
+            ))
+
+    # Número de contenedor (NUMERO / TIPO) — 4 letras + 7 dígitos
+    cont_ped_raw = ped.get("numero_contenedor") or ""
+    cont_bl_raw  = bl.get("numero_contenedor") if bl else ""
+
+    cont_ped = _normalizar_contenedor(cont_ped_raw)
+    cont_bl  = _normalizar_contenedor(cont_bl_raw)
+
+    if cont_ped:
+        # Validar formato correcto
+        if not CONTENEDOR_RE.match(cont_ped):
+            h.append(hacer_hallazgo(
+                "Número Contenedor — Formato",
+                cont_ped_raw, "Formato esperado: 4 letras + 7 dígitos (ej: MSCU1234567)",
+                "Pedimento",
+                "Anexo 22",
+                RiesgoNivel.MEDIO,
+                f"El número de contenedor '{cont_ped_raw}' no cumple el formato estándar (4 letras + 7 dígitos)."
+            ))
+        # Comparar vs BL si está disponible
+        if cont_bl:
+            if cont_ped != cont_bl:
+                h.append(hacer_hallazgo(
+                    "Número Contenedor vs BL",
+                    cont_ped_raw, cont_bl_raw,
+                    "Bill of Lading",
+                    "Anexo 22 / Art. 36-A Ley Aduanera",
+                    RiesgoNivel.CRITICO,
+                    f"El número de contenedor del pedimento ({cont_ped_raw}) no coincide con el BL ({cont_bl_raw})."
+                ))
+        elif bl:
+            # BL cargado pero sin número de contenedor extraído → advertencia
+            h.append(hacer_hallazgo(
+                "Número Contenedor — Sin dato en BL",
+                cont_ped_raw, "No extraído del BL",
+                "Bill of Lading",
+                "Anexo 22",
+                RiesgoNivel.MEDIO,
+                f"El pedimento declara contenedor '{cont_ped_raw}' pero no se pudo extraer del BL para verificar."
             ))
 
     return h
@@ -1363,6 +1470,7 @@ def ejecutar_validaciones(documentos: Dict[str, dict]) -> tuple:
         ("Fecha de Factura",        fac or carta),
         ("Número de COVE",          cove),
         ("Número BL / Guía",        bl or packing),
+        ("Número Contenedor",       bl),
         ("Peso Bruto",              packing or bl),
         ("Total Bultos",            packing or bl),
         ("Incrementable Flete",     carta),

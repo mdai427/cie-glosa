@@ -157,6 +157,7 @@ PROMPTS_JSON = {
   "tipo_cambio": "Tipo de cambio aplicado",
   "numero_cove": "Número de COVE declarado",
   "numero_bl": "Número de BL, guía aérea, AWB o documento de transporte (campo 'NO. GUIA/ORDEN EMBARQUE/ID' en el pedimento)",
+  "numero_contenedor": "Número del contenedor si aparece (formato: 4 letras + 7 dígitos, ej: MSCU1234567). null si no hay contenedor declarado",
   "peso_bruto": "Peso bruto total declarado (solo número)",
   "bultos": "Total de bultos declarados (solo número)",
   "partidas": [
@@ -182,7 +183,7 @@ PROMPTS_JSON = {
   "domicilio_importador": "Domicilio del comprador",
   "nombre_proveedor": "Nombre del vendedor o exportador",
   "domicilio_proveedor": "Domicilio del vendedor",
-  "id_fiscal_proveedor": "ID fiscal o tax ID del vendedor",
+  "id_fiscal_proveedor": "ID fiscal, TAX ID, EIN, VAT ID, RFC o número de identificación fiscal del vendedor (puede aparecer como 'TAX ID', 'EIN', 'VAT', 'RFC' en el documento)",
   "numero_factura": "Número de factura o invoice",
   "fecha_factura": "Fecha de emisión",
   "incoterm": "Incoterm declarado",
@@ -215,7 +216,7 @@ PROMPTS_JSON = {
   "domicilio_importador": "Domicilio del importador",
   "nombre_proveedor": "Nombre del proveedor o vendedor",
   "domicilio_proveedor": "Domicilio del proveedor",
-  "id_fiscal_proveedor": "ID fiscal del proveedor",
+  "id_fiscal_proveedor": "ID fiscal, TAX ID, EIN, VAT ID o RFC del proveedor (puede aparecer como 'TAX ID', 'EIN', 'VAT', 'RFC' en el documento)",
   "numero_factura": "Número de factura referenciada",
   "fecha_factura": "Fecha de la factura",
   "incoterm": "Incoterm acordado",
@@ -279,6 +280,7 @@ PROMPTS_JSON = {
   "puerto_origen": "Puerto o aeropuerto de origen",
   "puerto_destino": "Puerto o aeropuerto de destino",
   "fecha_embarque": "Fecha de embarque",
+  "numero_contenedor": "Número del contenedor (formato: 4 letras + 7 dígitos, ej: MSCU1234567). Si hay varios, separarlos con coma. null si no aparece",
   "marcas_numeros": "Marcas y números",
   "tipo_transporte": "Marítimo, aéreo o terrestre"
 }""",
