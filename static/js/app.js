@@ -753,6 +753,21 @@ async function exportarPDF() {
     .hallazgos-table td { padding: 7px 8px; border-bottom: 1px solid #e8ecf4; vertical-align: top; line-height: 1.4; }
     /* ---- Footer ---- */
     .rpt-footer { text-align: center; color: #bbb; font-size: 9px; margin-top: 20px; padding-top: 10px; border-top: 1px solid #e0e4ef; }
+    /* ---- Dictamen Glosador (Markdown renderizado) ---- */
+    .reporte-md h1 { font-size: 14px; font-weight: 800; color: #1B2B6B; margin: 14px 0 6px; }
+    .reporte-md h2 { font-size: 13px; font-weight: 700; color: #1B2B6B; margin: 12px 0 5px; border-bottom: 1px solid #dde3f0; padding-bottom: 3px; }
+    .reporte-md h3 { font-size: 12px; font-weight: 700; color: #1B2B6B; margin: 10px 0 4px; }
+    .reporte-md p  { margin: 4px 0 8px; }
+    .reporte-md ul { margin: 4px 0 8px 20px; }
+    .reporte-md ol { margin: 4px 0 8px 20px; }
+    .reporte-md li { margin-bottom: 3px; }
+    .reporte-md strong { font-weight: 700; }
+    .reporte-md em { font-style: italic; }
+    .reporte-md hr { border: none; border-top: 1px solid #dde3f0; margin: 10px 0; }
+    .reporte-md table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 10px; }
+    .reporte-md th { background: #1B2B6B; color: #fff; padding: 5px 8px; text-align: left; font-size: 9px; }
+    .reporte-md td { padding: 5px 8px; border-bottom: 1px solid #e8ecf4; vertical-align: top; }
+    .reporte-md tr:nth-child(even) td { background: #f7f9fc; }
   </style>
 </head>
 <body>
@@ -829,6 +844,17 @@ async function exportarPDF() {
       </thead>
       <tbody>${filas}</tbody>
     </table>
+
+    ${resultadoActual.reporte_glosa ? `
+    <!-- DICTAMEN GLOSADOR EXPERTO -->
+    <div style="margin-top:28px;page-break-before:always">
+      <div style="background:#1B2B6B;color:#fff;padding:10px 16px;border-radius:6px 6px 0 0;font-size:12px;font-weight:700;letter-spacing:.3px">
+        Dictamen del Glosador Aduanal Experto
+      </div>
+      <div class="reporte-md" style="border:1px solid #1B2B6B;border-top:none;border-radius:0 0 6px 6px;padding:20px 22px;font-size:11px;line-height:1.7;color:#1a1a2e">
+        ${markdownAHtml(resultadoActual.reporte_glosa)}
+      </div>
+    </div>` : ''}
 
     <!-- FOOTER -->
     <div class="rpt-footer">
