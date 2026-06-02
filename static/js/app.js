@@ -136,8 +136,16 @@ function cerrarSesion() {
   mostrarLogin();
 }
 
-/// ===== ADMIN: MIGRACIÓN FECHAS =====
-async function migrarFechas() {
+// ===== ADMIN: MIGRACIÓN FECHAS =====
+const _MIG_KEY = 'glosa_fechas_migradas';
+
+async function _ejecutarMigracionSiPendiente() {
+  // Solo ejecutar si aún no se ha marcado como completado en este navegador
+  if (localStorage.getItem(_MIG_KEY)) return;
+  await migrarFechas(true); // silencioso si ya no hay nada que corregir
+}
+
+async function migrarFechas(silencioso = false) {
   const btn = document.getElementById('btn-migrar-fechas');
   const res = document.getElementById('migrar-resultado');
   if (!btn || !res) return;
@@ -151,6 +159,9 @@ async function migrarFechas() {
     const data = await resp.json();
     res.style.display = 'block';
     if (resp.ok) {
+      localStorage.setItem(_MIG_KEY, '1'); // marcar como completado
+      if (silencioso && data.actualizados === 0) return; // nada que mostrar
+      res.style.display = 'block';
       res.style.background = '#EAF7F1';
       res.style.color = '#1A8A5A';
       res.style.border = '1px solid #1A8A5A';
@@ -283,7 +294,7 @@ function mostrarSeccion(seccion) {
 
   if (seccion === 'historial') cargarHistorial();
   if (seccion === 'dashboard') cargarDashboard();
-  if (seccion === 'admin') cargarUsuarios();
+  if (seccion === 'admin') { cargarUsuarios(); _ejecutarMigracionSiPendiente(); }
 }
 
 // ===== MANEJO DE ARCHIVOS =====
