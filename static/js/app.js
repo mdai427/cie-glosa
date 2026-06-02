@@ -89,6 +89,10 @@ function mostrarApp() {
   const navAdmin = document.getElementById('nav-admin');
   if (navAdmin) navAdmin.style.display = _usuarioActual.rol === 'admin' ? 'inline-flex' : 'none';
   _resetInactividad();
+  // Ejecutar migración de fechas automáticamente si es admin
+  if (_usuarioActual.rol === 'admin') {
+    setTimeout(_ejecutarMigracionSiPendiente, 2000); // esperar 2s para que la app esté lista
+  }
 }
 
 async function hacerLogin(e) {
@@ -137,7 +141,7 @@ function cerrarSesion() {
 }
 
 // ===== ADMIN: MIGRACIÓN FECHAS =====
-const _MIG_KEY = 'glosa_fechas_migradas';
+const _MIG_KEY = 'glosa_fechas_migradas_v2'; // v2 fuerza re-ejecución
 
 async function _ejecutarMigracionSiPendiente() {
   // Solo ejecutar si aún no se ha marcado como completado en este navegador
@@ -161,7 +165,7 @@ async function migrarFechas(silencioso = false) {
     if (resp.ok) {
       localStorage.setItem(_MIG_KEY, '1'); // marcar como completado
       if (silencioso && data.actualizados === 0) return; // nada que mostrar
-      res.style.display = 'block';
+      if (res) res.style.display = 'block';
       res.style.background = '#EAF7F1';
       res.style.color = '#1A8A5A';
       res.style.border = '1px solid #1A8A5A';
