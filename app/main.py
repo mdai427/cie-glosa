@@ -5,6 +5,9 @@ import logging
 import secrets
 import aiofiles
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+_TZ_MX = ZoneInfo("America/Mexico_City")
 from pathlib import Path
 from typing import List, Optional
 from collections import Counter
@@ -130,7 +133,7 @@ async def setup_primer_admin(request: Request, body: SetupAdminRequest):
         raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 8 caracteres")
 
     hashed = hash_password(body.password)
-    fecha = datetime.now().strftime("%d/%m/%Y %H:%M")
+    fecha = datetime.now(_TZ_MX).strftime("%d/%m/%Y %H:%M")
     user_id = await database.crear_usuario(
         body.email.strip().lower(), body.nombre.strip(), hashed, "admin", fecha
     )
@@ -231,7 +234,7 @@ async def crear_usuario_admin(
 
     password = generar_password_temporal()
     hashed = hash_password(password)
-    fecha = datetime.now().strftime("%d/%m/%Y %H:%M")
+    fecha = datetime.now(_TZ_MX).strftime("%d/%m/%Y %H:%M")
     user_id = await database.crear_usuario(email, body.nombre.strip(), hashed, body.rol, fecha)
 
     # Enviar correo con credenciales
@@ -296,7 +299,7 @@ async def crear_revision(
 
     revision_id = str(uuid.uuid4())[:8].upper()
     ref = referencia or f"REV-{revision_id}"
-    fecha = datetime.now().strftime("%d/%m/%Y %H:%M")
+    fecha = datetime.now(_TZ_MX).strftime("%d/%m/%Y %H:%M")
 
     documentos_extraidos = {}
     documentos_cargados = []
@@ -421,7 +424,7 @@ async def dashboard(
     request: Request,
     current_user: dict = Depends(get_current_user),
 ):
-    hace_7_dias = (datetime.now() - timedelta(days=7)).strftime("%d/%m/%Y")
+    hace_7_dias = (datetime.now(_TZ_MX) - timedelta(days=7)).strftime("%d/%m/%Y")
 
     total = await database.contar_revisiones()
     all_json = await database.obtener_todas_revisiones_json()
