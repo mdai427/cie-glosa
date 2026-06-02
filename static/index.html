@@ -502,6 +502,25 @@
         </form>
       </div>
 
+      <!-- Herramientas de mantenimiento -->
+      <div class="card" style="border-left:4px solid #C47E00;margin-bottom:18px">
+        <div class="card-header-row">
+          <h2 class="card-title" style="color:#C47E00">Herramientas de Mantenimiento</h2>
+        </div>
+        <div style="padding:10px 0 4px;display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap">
+          <div>
+            <button class="btn-secondary" onclick="migrarFechas()" id="btn-migrar-fechas"
+              style="background:#FFF8E6;border:1px solid #C47E00;color:#C47E00;font-weight:700;padding:10px 20px">
+              Corregir fechas históricas (UTC a hora México)
+            </button>
+            <p style="font-size:11px;color:#888;margin-top:6px;max-width:460px">
+              Ejecutar <b>una sola vez</b>. Ajusta las fechas del historial que quedaron en hora UTC en lugar de hora de México (-6h).
+            </p>
+          </div>
+        </div>
+        <div id="migrar-resultado" style="display:none;margin-top:10px;padding:10px 14px;border-radius:6px;font-size:13px;font-weight:600"></div>
+      </div>
+
       <!-- Lista de usuarios -->
       <div class="card">
         <div class="card-header-row">

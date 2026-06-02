@@ -136,6 +136,45 @@ function cerrarSesion() {
   mostrarLogin();
 }
 
+/// ===== ADMIN: MIGRACIÓN FECHAS =====
+async function migrarFechas() {
+  const btn = document.getElementById('btn-migrar-fechas');
+  const res = document.getElementById('migrar-resultado');
+  if (!btn || !res) return;
+
+  btn.disabled = true;
+  btn.textContent = 'Procesando...';
+  res.style.display = 'none';
+
+  try {
+    const resp = await apiFetch('/api/admin/migrar-fechas-utc', { method: 'POST' });
+    const data = await resp.json();
+    res.style.display = 'block';
+    if (resp.ok) {
+      res.style.background = '#EAF7F1';
+      res.style.color = '#1A8A5A';
+      res.style.border = '1px solid #1A8A5A';
+      res.textContent = '✓ ' + data.message;
+      btn.textContent = 'Ya ejecutado — fechas corregidas';
+    } else {
+      res.style.background = '#FDEAEC';
+      res.style.color = '#CC1F2F';
+      res.style.border = '1px solid #CC1F2F';
+      res.textContent = 'Error: ' + (data.detail || JSON.stringify(data));
+      btn.disabled = false;
+      btn.textContent = 'Corregir fechas históricas (UTC a hora México)';
+    }
+  } catch (e) {
+    res.style.display = 'block';
+    res.style.background = '#FDEAEC';
+    res.style.color = '#CC1F2F';
+    res.style.border = '1px solid #CC1F2F';
+    res.textContent = 'Error de conexión: ' + e.message;
+    btn.disabled = false;
+    btn.textContent = 'Corregir fechas históricas (UTC a hora México)';
+  }
+}
+
 // ===== ADMIN: USUARIOS =====
 async function cargarUsuarios() {
   const div = document.getElementById('tabla-usuarios');
