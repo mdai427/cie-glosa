@@ -418,6 +418,86 @@ async def eliminar_revision(
     return {"message": "Revisión eliminada"}
 
 
+@app.post("/api/admin/migrar-fechas-utc")
+@limiter.limit("5/minute")
+async def migrar_fechas_utc(
+    request: Request,
+    admin: dict = Depends(get_admin_user),
+):
+    """
+    Migración única: convierte fechas históricas de UTC a hora de México (UTC-6).
+    Solo aplica a registros cuya fecha no ha sido corregida todavía.
+    Solo disponible para admins.
+    """
+    from datetime import timezone
+    actualizados = 0
+    errores = 0
+
+    def corregir_fecha(fecha_str: str) -> Optional[str]:
+        """Parsea 'DD/MM/YYYY HH:MM', resta 6 horas (UTC→MX), devuelve nuevo string."""
+        if not fecha_str:
+            return None
+        try:
+            dt = datetime.strptime(fecha_str.strip(), "%d/%m/%Y %H:%M")
+            # Tratar como UTC y convertir a México (UTC-6)
+            dt_utc = dt.replace(tzinfo=timezone.utc)
+            dt_mx  = dt_utc.astimezone(_TZ_MX)
+            return dt_mx.strftime("%d/%m/%Y %H:%M")
+        except Exception:
+            return None
+
+    if database.USE_PG:
+        async with database._pg_pool.acquire() as conn:
+            rows = await conn.fetch("SELECT id, fecha_revision FROM revisiones")
+            for row in rows:
+                nueva = corregir_fecha(row["fecha_revision"])
+                if nueva and nueva != row["fecha_revision"]:
+                    try:
+                        await conn.execute(
+                            "UPDATE revisiones SET fecha_revision=$1 WHERE id=$2",
+                            nueva, row["id"]
+                        )
+                        actualizados += 1
+                    except Exception:
+                        errores += 1
+            # También corregir created_at de usuarios
+            usuarios = await conn.fetch("SELECT id, created_at FROM usuarios")
+            for u in usuarios:
+                nueva = corregir_fecha(u["created_at"])
+                if nueva and nueva != u["created_at"]:
+                    try:
+                        await conn.execute(
+                            "UPDATE usuarios SET created_at=$1 WHERE id=$2",
+                            nueva, u["id"]
+                        )
+                        actualizados += 1
+                    except Exception:
+                        errores += 1
+    else:
+        import aiosqlite as _aio
+        async with _aio.connect(str(database.DB_PATH)) as db:
+            async with db.execute("SELECT id, fecha_revision FROM revisiones") as cur:
+                rows = await cur.fetchall()
+            for row in rows:
+                nueva = corregir_fecha(row[1])
+                if nueva and nueva != row[1]:
+                    try:
+                        await db.execute(
+                            "UPDATE revisiones SET fecha_revision=? WHERE id=?",
+                            (nueva, row[0])
+                        )
+                        actualizados += 1
+                    except Exception:
+                        errores += 1
+            await db.commit()
+
+    return {
+        "message": f"Migración completada: {actualizados} fechas corregidas, {errores} errores.",
+        "actualizados": actualizados,
+        "errores": errores
+    }
+
+
 @app.get("/api/dashboard")
 @limiter.limit("60/minute")
 async def dashboard(
