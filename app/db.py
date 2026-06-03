@@ -40,19 +40,41 @@ async def init_db():
         async with _pg_pool.acquire() as conn:
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS revisiones (
-                    id TEXT PRIMARY KEY,
+                    seq        SERIAL,
+                    id         TEXT PRIMARY KEY,
                     referencia TEXT,
-                    cliente TEXT,
+                    cliente    TEXT,
                     fecha_revision TEXT,
+                    semaforo   TEXT,
                     resultado_json TEXT,
-                    estatus TEXT DEFAULT 'completado'
+                    estatus    TEXT DEFAULT 'completado'
                 )
             """)
+            # Agregar columnas nuevas si la tabla ya existe (migraciones seguras)
+            for col, defn in [
+                ("seq",      "SERIAL"),
+                ("semaforo", "TEXT"),
+            ]:
+                try:
+                    if col == "seq":
+                        await conn.execute(
+                            "ALTER TABLE revisiones ADD COLUMN IF NOT EXISTS seq SERIAL"
+                        )
+                    else:
+                        await conn.execute(
+                            f"ALTER TABLE revisiones ADD COLUMN IF NOT EXISTS {col} {defn}"
+                        )
+                except Exception:
+                    pass
+
             await conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_revisiones_cliente ON revisiones(cliente)"
+                "CREATE INDEX IF NOT EXISTS idx_rev_seq      ON revisiones(seq DESC)"
             )
             await conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_revisiones_fecha ON revisiones(fecha_revision)"
+                "CREATE INDEX IF NOT EXISTS idx_rev_cliente  ON revisiones(cliente)"
+            )
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_rev_semaforo ON revisiones(semaforo)"
             )
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS usuarios (
@@ -74,15 +96,21 @@ async def init_db():
                     referencia TEXT,
                     cliente TEXT,
                     fecha_revision TEXT,
+                    semaforo TEXT,
                     resultado_json TEXT,
                     estatus TEXT DEFAULT 'completado'
                 )
             """)
+            # Agregar columna semaforo si no existe
+            try:
+                await db.execute("ALTER TABLE revisiones ADD COLUMN semaforo TEXT")
+            except Exception:
+                pass
             await db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_revisiones_cliente ON revisiones(cliente)"
+                "CREATE INDEX IF NOT EXISTS idx_rev_cliente  ON revisiones(cliente)"
             )
             await db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_revisiones_fecha ON revisiones(fecha_revision)"
+                "CREATE INDEX IF NOT EXISTS idx_rev_semaforo ON revisiones(semaforo)"
             )
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS usuarios (
@@ -116,18 +144,21 @@ async def insertar_revision(
     fecha: str,
     resultado_json: str,
     estatus: str = "completado",
+    semaforo: str = "",
 ):
     if USE_PG:
         async with _pg_pool.acquire() as conn:
             await conn.execute(
-                "INSERT INTO revisiones VALUES ($1,$2,$3,$4,$5,$6)",
-                revision_id, referencia, cliente, fecha, resultado_json, estatus
+                "INSERT INTO revisiones (id, referencia, cliente, fecha_revision, semaforo, resultado_json, estatus) "
+                "VALUES ($1,$2,$3,$4,$5,$6,$7)",
+                revision_id, referencia, cliente, fecha, semaforo, resultado_json, estatus
             )
     else:
         async with aiosqlite.connect(str(DB_PATH)) as db:
             await db.execute(
-                "INSERT INTO revisiones VALUES (?,?,?,?,?,?)",
-                (revision_id, referencia, cliente, fecha, resultado_json, estatus)
+                "INSERT INTO revisiones (id, referencia, cliente, fecha_revision, semaforo, resultado_json, estatus) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (revision_id, referencia, cliente, fecha, semaforo, resultado_json, estatus)
             )
             await db.commit()
 
@@ -152,23 +183,25 @@ async def listar_revisiones() -> List[dict]:
     if USE_PG:
         async with _pg_pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT id, referencia, cliente, fecha_revision, estatus "
-                "FROM revisiones ORDER BY id DESC LIMIT 50"
+                "SELECT id, referencia, cliente, fecha_revision, semaforo, estatus "
+                "FROM revisiones ORDER BY seq DESC NULLS LAST LIMIT 100"
             )
             return [
                 {"id": r["id"], "referencia": r["referencia"], "cliente": r["cliente"],
-                 "fecha": r["fecha_revision"], "estatus": r["estatus"]}
+                 "fecha": r["fecha_revision"], "semaforo": r["semaforo"] or "",
+                 "estatus": r["estatus"]}
                 for r in rows
             ]
     else:
         async with aiosqlite.connect(str(DB_PATH)) as db:
             async with db.execute(
-                "SELECT id, referencia, cliente, fecha_revision, estatus "
-                "FROM revisiones ORDER BY rowid DESC LIMIT 50"
+                "SELECT id, referencia, cliente, fecha_revision, semaforo, estatus "
+                "FROM revisiones ORDER BY rowid DESC LIMIT 100"
             ) as cur:
                 rows = await cur.fetchall()
                 return [
-                    {"id": r[0], "referencia": r[1], "cliente": r[2], "fecha": r[3], "estatus": r[4]}
+                    {"id": r[0], "referencia": r[1], "cliente": r[2],
+                     "fecha": r[3], "semaforo": r[4] or "", "estatus": r[5]}
                     for r in rows
                 ]
 
@@ -184,15 +217,41 @@ async def eliminar_revision(revision_id: str):
 
 
 async def obtener_todas_revisiones_json() -> List[str]:
+    """Solo devuelve los JSON necesarios para el dashboard (últimas 200)."""
     if USE_PG:
         async with _pg_pool.acquire() as conn:
-            rows = await conn.fetch("SELECT resultado_json FROM revisiones")
+            rows = await conn.fetch(
+                "SELECT resultado_json FROM revisiones ORDER BY seq DESC NULLS LAST LIMIT 200"
+            )
             return [r["resultado_json"] for r in rows]
     else:
         async with aiosqlite.connect(str(DB_PATH)) as db:
-            async with db.execute("SELECT resultado_json FROM revisiones") as cur:
+            async with db.execute(
+                "SELECT resultado_json FROM revisiones ORDER BY rowid DESC LIMIT 200"
+            ) as cur:
                 rows = await cur.fetchall()
                 return [r[0] for r in rows]
+
+
+async def conteo_por_semaforo() -> dict:
+    """Cuenta revisiones agrupadas por semáforo — sin cargar JSONs."""
+    if USE_PG:
+        async with _pg_pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT semaforo, COUNT(*) as cnt FROM revisiones "
+                "WHERE semaforo IS NOT NULL AND semaforo != '' "
+                "GROUP BY semaforo"
+            )
+            return {r["semaforo"]: r["cnt"] for r in rows}
+    else:
+        async with aiosqlite.connect(str(DB_PATH)) as db:
+            async with db.execute(
+                "SELECT semaforo, COUNT(*) as cnt FROM revisiones "
+                "WHERE semaforo IS NOT NULL AND semaforo != '' "
+                "GROUP BY semaforo"
+            ) as cur:
+                rows = await cur.fetchall()
+                return {r[0]: r[1] for r in rows}
 
 
 async def contar_revisiones() -> int:

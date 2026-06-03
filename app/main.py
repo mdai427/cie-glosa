@@ -377,7 +377,8 @@ async def crear_revision(
     try:
         await database.insertar_revision(
             revision_id, ref, cliente or "", fecha,
-            resultado.model_dump_json(), "completado"
+            resultado.model_dump_json(), "completado",
+            semaforo=resultado.semaforo or ""
         )
     except Exception as e:
         logger.error(f"Error guardando revision {revision_id} en DB: {e}")
@@ -504,28 +505,39 @@ async def dashboard(
     request: Request,
     current_user: dict = Depends(get_current_user),
 ):
-    hace_7_dias = (datetime.now(_TZ_MX) - timedelta(days=7)).strftime("%d/%m/%Y")
-
     total = await database.contar_revisiones()
-    all_json = await database.obtener_todas_revisiones_json()
 
-    por_semaforo = {"verde": 0, "amarillo": 0, "rojo": 0, "negro": 0}
+    # Conteo de semáforos directo desde BD (sin cargar JSON)
+    sem_counts = await database.conteo_por_semaforo()
+    por_semaforo = {
+        "verde":    sem_counts.get("verde", 0),
+        "amarillo": sem_counts.get("amarillo", 0),
+        "rojo":     sem_counts.get("rojo", 0),
+        "negro":    sem_counts.get("negro", 0),
+    }
+
+    # Para top campos y métricas detalladas — solo últimas 200 revisiones
+    all_json = await database.obtener_todas_revisiones_json()
     campos_counter: Counter = Counter()
     ultimos_7 = 0
     total_criticos = 0
+    hace_7_dias_dt = datetime.now(_TZ_MX) - timedelta(days=7)
 
     for rjson in all_json:
         try:
             r = json.loads(rjson)
-            sem = r.get("semaforo", "")
-            if sem in por_semaforo:
-                por_semaforo[sem] += 1
             for h in r.get("hallazgos", []):
                 campos_counter[h.get("campo", "")] += 1
             total_criticos += r.get("total_criticos", 0)
             fecha_str = r.get("fecha_revision", "")
-            if fecha_str and fecha_str[:10] >= hace_7_dias:
-                ultimos_7 += 1
+            if fecha_str:
+                try:
+                    # Soportar formato DD/MM/YYYY HH:MM
+                    dt_rev = datetime.strptime(fecha_str[:16], "%d/%m/%Y %H:%M")
+                    if dt_rev >= hace_7_dias_dt.replace(tzinfo=None):
+                        ultimos_7 += 1
+                except Exception:
+                    pass
         except Exception:
             pass
 
